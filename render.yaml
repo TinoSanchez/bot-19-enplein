@@ -1,0 +1,21 @@
+# Déploiement Render : Background Worker (pas de plan "free" pour les workers — voir tarifs Render).
+# Dashboard → New → Blueprint → connecte ce dépôt, ou crée le worker manuellement avec les mêmes réglages.
+
+services:
+  - type: worker
+    name: bot-19-enplein
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    region: frankfurt
+    disk:
+      name: players-sqlite
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: GUILD_ID
+        sync: false
+      - key: PLAYERS_DB_PATH
+        value: /data/players.db

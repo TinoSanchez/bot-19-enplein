@@ -1,0 +1,219 @@
+"""
+Bot Discord — gestion liste joueurs (Discord + Gamdom + KYC) pour 19enplein.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import sqlite3
+import sys
+from pathlib import Path
+
+import discord
+from discord import app_commands
+from discord.ext import commands
+from dotenv import load_dotenv
+
+from database import Player, PlayerDB
+
+load_dotenv()
+
+TOKEN = os.getenv("DISCORD_TOKEN")
+GUILD_ID_RAW = os.getenv("GUILD_ID")
+GUILD_ID = int(GUILD_ID_RAW) if GUILD_ID_RAW and GUILD_ID_RAW.isdigit() else None
+
+ROOT = Path(__file__).resolve().parent
+_db_override = os.getenv("PLAYERS_DB_PATH")
+DB_PATH = Path(_db_override).resolve() if _db_override else ROOT / "players.db"
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+intents = discord.Intents.default()
+
+db = PlayerDB(DB_PATH)
+
+
+def _player_embed(p: Player) -> discord.Embed:
+    e = discord.Embed(title="Fiche joueur", color=0x5865F2)
+    e.add_field(name="Pseudo Discord", value=p.discord_username, inline=True)
+    e.add_field(name="ID Discord", value=p.discord_id, inline=True)
+    e.add_field(name="\u200b", value="\u200b", inline=False)
+    e.add_field(name="Pseudo Gamdom", value=p.gamdom_username, inline=True)
+    e.add_field(name="ID Gamdom", value=p.gamdom_id, inline=True)
+    e.add_field(name="Niveau KYC", value=p.kyc_level, inline=True)
+    return e
+
+
+class JoueurCog(commands.Cog):
+    joueur = app_commands.Group(name="joueur", description="Gérer la liste des joueurs Gamdom")
+
+    def __init__(self, bot: commands.Bot) -> None:
+        self.bot = bot
+
+    @joueur.command(name="ajouter", description="Ajouter un joueur à la liste")
+    @app_commands.describe(
+        pseudo_discord="Pseudo Discord (affichage)",
+        id_discord="ID Discord du membre (chiffres)",
+        pseudo_gamdom="Pseudo sur Gamdom",
+        id_gamdom="Identifiant Gamdom",
+        niveau_kyc="Niveau de vérification KYC (ex. 0, 1, 2…)",
+    )
+    async def joueur_ajouter(
+        self,
+        interaction: discord.Interaction,
+        pseudo_discord: str,
+        id_discord: str,
+        pseudo_gamdom: str,
+        id_gamdom: str,
+        niveau_kyc: str,
+    ) -> None:
+        id_discord = id_discord.strip()
+        if not id_discord.isdigit():
+            await interaction.response.send_message(
+                "L’ID Discord doit contenir uniquement des chiffres.", ephemeral=True
+            )
+            return
+        if db.get(id_discord):
+            await interaction.response.send_message(
+                "Ce joueur existe déjà (même ID Discord). Utilise `/joueur modifier`.",
+                ephemeral=True,
+            )
+            return
+        player = Player(
+            discord_id=id_discord,
+            discord_username=pseudo_discord.strip(),
+            gamdom_username=pseudo_gamdom.strip(),
+            gamdom_id=id_gamdom.strip(),
+            kyc_level=niveau_kyc.strip(),
+        )
+        try:
+            db.add(player)
+        except sqlite3.IntegrityError:
+            await interaction.response.send_message(
+                "Ce joueur existe déjà (ID Discord déjà enregistré).", ephemeral=True
+            )
+            return
+        await interaction.response.send_message(embed=_player_embed(player))
+
+    @joueur.command(name="modifier", description="Mettre à jour un joueur (par ID Discord)")
+    @app_commands.describe(
+        id_discord="ID Discord du joueur à modifier",
+        pseudo_discord="Nouveau pseudo Discord (laisser vide pour ne pas changer)",
+        pseudo_gamdom="Nouveau pseudo Gamdom",
+        id_gamdom="Nouvel ID Gamdom",
+        niveau_kyc="Nouveau niveau KYC",
+    )
+    async def joueur_modifier(
+        self,
+        interaction: discord.Interaction,
+        id_discord: str,
+        pseudo_discord: str | None = None,
+        pseudo_gamdom: str | None = None,
+        id_gamdom: str | None = None,
+        niveau_kyc: str | None = None,
+    ) -> None:
+        id_discord = id_discord.strip()
+        if not id_discord.isdigit():
+            await interaction.response.send_message("ID Discord invalide.", ephemeral=True)
+            return
+        kwargs: dict[str, str] = {}
+        if pseudo_discord is not None and pseudo_discord.strip():
+            kwargs["discord_username"] = pseudo_discord.strip()
+        if pseudo_gamdom is not None and pseudo_gamdom.strip():
+            kwargs["gamdom_username"] = pseudo_gamdom.strip()
+        if id_gamdom is not None and id_gamdom.strip():
+            kwargs["gamdom_id"] = id_gamdom.strip()
+        if niveau_kyc is not None and niveau_kyc.strip():
+            kwargs["kyc_level"] = niveau_kyc.strip()
+        if not kwargs:
+            await interaction.response.send_message(
+                "Indique au moins un champ à modifier.", ephemeral=True
+            )
+            return
+        if not db.update(id_discord, **kwargs):
+            await interaction.response.send_message(
+                "Aucun joueur avec cet ID Discord.", ephemeral=True
+            )
+            return
+        p = db.get(id_discord)
+        assert p is not None
+        await interaction.response.send_message(embed=_player_embed(p))
+
+    @joueur.command(name="supprimer", description="Retirer un joueur de la liste")
+    @app_commands.describe(id_discord="ID Discord du joueur à supprimer")
+    async def joueur_supprimer(self, interaction: discord.Interaction, id_discord: str) -> None:
+        id_discord = id_discord.strip()
+        if not id_discord.isdigit():
+            await interaction.response.send_message("ID Discord invalide.", ephemeral=True)
+            return
+        if not db.delete(id_discord):
+            await interaction.response.send_message(
+                "Aucun joueur avec cet ID Discord.", ephemeral=True
+            )
+            return
+        await interaction.response.send_message(f"Joueur supprimé (`{id_discord}`).")
+
+    @joueur.command(name="fiche", description="Afficher la fiche d’un joueur")
+    @app_commands.describe(id_discord="ID Discord du joueur")
+    async def joueur_fiche(self, interaction: discord.Interaction, id_discord: str) -> None:
+        id_discord = id_discord.strip()
+        p = db.get(id_discord)
+        if not p:
+            await interaction.response.send_message(
+                "Aucun joueur avec cet ID Discord.", ephemeral=True
+            )
+            return
+        await interaction.response.send_message(embed=_player_embed(p))
+
+    @joueur.command(name="liste", description="Lister tous les joueurs enregistrés")
+    async def joueur_liste(self, interaction: discord.Interaction) -> None:
+        players = db.list_all()
+        if not players:
+            await interaction.response.send_message("La liste est vide.")
+            return
+        lines = [
+            f"**{p.discord_username}** — Gamdom: `{p.gamdom_username}` — KYC: `{p.kyc_level}` — ID Discord: `{p.discord_id}`"
+            for p in players
+        ]
+        text = "\n".join(lines)
+        if len(text) <= 3900:
+            await interaction.response.send_message(text)
+            return
+        await interaction.response.defer()
+        chunk_size = 3800
+        for i in range(0, len(text), chunk_size):
+            chunk = text[i : i + chunk_size]
+            if i == 0:
+                await interaction.followup.send(chunk)
+            else:
+                await interaction.followup.send(chunk)
+
+
+class Bot19(commands.Bot):
+    def __init__(self) -> None:
+        super().__init__(command_prefix="!", intents=intents, help_command=None)
+
+    async def setup_hook(self) -> None:
+        await self.add_cog(JoueurCog(self))
+        if GUILD_ID:
+            await self.tree.sync(guild=discord.Object(id=GUILD_ID))
+        else:
+            await self.tree.sync()
+
+
+async def main() -> None:
+    if not TOKEN:
+        print("Définis DISCORD_TOKEN dans un fichier .env (voir .env.example).", file=sys.stderr)
+        sys.exit(1)
+    bot = Bot19()
+
+    @bot.event
+    async def on_ready() -> None:
+        print(f"Connecté en tant que {bot.user} ({bot.user.id if bot.user else '?'})")
+
+    async with bot:
+        await bot.start(TOKEN)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

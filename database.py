@@ -348,6 +348,7 @@ class RankEntry:
     player_key: str
     display_name: str
     tier: str
+    montant_eur: int
 
 
 class RankDB:
@@ -371,10 +372,17 @@ class RankDB:
                 CREATE TABLE IF NOT EXISTS rank_players (
                     player_key TEXT PRIMARY KEY,
                     display_name TEXT NOT NULL,
-                    tier TEXT NOT NULL
+                    tier TEXT NOT NULL,
+                    montant_eur INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
+            try:
+                conn.execute(
+                    "ALTER TABLE rank_players ADD COLUMN montant_eur INTEGER NOT NULL DEFAULT 0"
+                )
+            except sqlite3.OperationalError:
+                pass
             conn.commit()
             conn.close()
 
@@ -386,10 +394,10 @@ class RankDB:
             try:
                 conn.execute(
                     """
-                    INSERT INTO rank_players (player_key, display_name, tier)
-                    VALUES (?, ?, ?)
+                    INSERT INTO rank_players (player_key, display_name, tier, montant_eur)
+                    VALUES (?, ?, ?, ?)
                     """,
-                    (entry.player_key, entry.display_name, entry.tier),
+                    (entry.player_key, entry.display_name, entry.tier, entry.montant_eur),
                 )
                 conn.commit()
             finally:
@@ -401,6 +409,7 @@ class RankDB:
         *,
         display_name: Optional[str] = None,
         tier: Optional[str] = None,
+        montant_eur: Optional[int] = None,
     ) -> bool:
         fields: dict[str, Any] = {}
         if display_name is not None and str(display_name).strip():
@@ -410,6 +419,8 @@ class RankDB:
             if t not in VALID_TIERS:
                 raise ValueError(f"tier invalide: {tier}")
             fields["tier"] = t
+        if montant_eur is not None:
+            fields["montant_eur"] = int(montant_eur)
         if not fields:
             return False
         cols = ", ".join(f"{k} = ?" for k in fields)
@@ -441,7 +452,7 @@ class RankDB:
             conn = self._connect()
             try:
                 row = conn.execute(
-                    "SELECT player_key, display_name, tier FROM rank_players WHERE player_key = ?",
+                    "SELECT player_key, display_name, tier, montant_eur FROM rank_players WHERE player_key = ?",
                     (player_key,),
                 ).fetchone()
             finally:
@@ -452,6 +463,7 @@ class RankDB:
             player_key=row["player_key"],
             display_name=row["display_name"],
             tier=row["tier"],
+            montant_eur=int(row["montant_eur"]),
         )
 
     def list_all(self) -> List[RankEntry]:
@@ -464,12 +476,17 @@ class RankDB:
             conn = self._connect()
             try:
                 rows = conn.execute(
-                    f"SELECT player_key, display_name, tier FROM rank_players ORDER BY {order_sql}"
+                    f"SELECT player_key, display_name, tier, montant_eur FROM rank_players ORDER BY {order_sql}"
                 ).fetchall()
             finally:
                 conn.close()
         return [
-            RankEntry(player_key=r["player_key"], display_name=r["display_name"], tier=r["tier"])
+            RankEntry(
+                player_key=r["player_key"],
+                display_name=r["display_name"],
+                tier=r["tier"],
+                montant_eur=int(r["montant_eur"]),
+            )
             for r in rows
         ]
 
@@ -485,10 +502,10 @@ class RankDB:
                         continue
                     conn.execute(
                         """
-                        INSERT INTO rank_players (player_key, display_name, tier)
-                        VALUES (?, ?, ?)
+                        INSERT INTO rank_players (player_key, display_name, tier, montant_eur)
+                        VALUES (?, ?, ?, ?)
                         """,
-                        (key, display, tier),
+                        (key, display, tier, 0),
                     )
                 conn.commit()
             finally:

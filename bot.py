@@ -42,6 +42,35 @@ point_db.seed_points_if_empty()
 rank_db = RankDB(DB_PATH)
 rank_db.seed_ranks_if_empty()
 
+
+def _resolve_point_key(raw: str) -> Optional[str]:
+    """Trouve le joueur par pseudo affiché ou par nom normalisé (ex. kane, Kane)."""
+    s = (raw or "").strip()
+    if not s:
+        return None
+    k = normalize_point_key(s)
+    if point_db.get(k):
+        return k
+    for p in point_db.list_all():
+        if normalize_point_key(p.display_name) == k or p.display_name.lower() == s.lower():
+            return p.player_key
+    return None
+
+
+def _resolve_rank_key(raw: str) -> Optional[str]:
+    """Trouve le joueur rank par pseudo affiché ou nom court (ex. Onizuka, oni)."""
+    s = (raw or "").strip()
+    if not s:
+        return None
+    k = normalize_point_key(s)
+    if rank_db.get(k):
+        return k
+    for r in rank_db.list_all():
+        if normalize_point_key(r.display_name) == k or r.display_name.lower() == s.lower():
+            return r.player_key
+    return None
+
+
 # Limite Discord pour le contenu d’un message texte (pas 3900).
 _DISCORD_TEXT_LIMIT = 2000
 
@@ -233,7 +262,6 @@ class AffiCog(commands.Cog):
 def _point_embed(p: PointEntry) -> discord.Embed:
     e = discord.Embed(title="Fiche points", color=0x57F287)
     e.add_field(name="Joueur", value=p.display_name, inline=True)
-    e.add_field(name="Clé", value=f"`{p.player_key}`", inline=True)
     e.add_field(name="\u200b", value="\u200b", inline=False)
     e.add_field(name="Points à rajouter", value=str(p.points_rajouter), inline=True)
     e.add_field(name="Total", value=str(p.total), inline=True)
@@ -250,7 +278,7 @@ class PointCog(commands.Cog):
 
     @point.command(name="ajouter", description="Ajouter un joueur dans le système de points")
     @app_commands.describe(
-        cle="Identifiant unique (ex: gaylord, sans espaces)",
+        joueur="Pseudo du joueur (sera aussi la référence interne, ex. gaylord)",
         nom_affichage="Nom affiché",
         points_rajouter="Points à rajouter (référence)",
         total="Total actuel (défaut 0)",
@@ -258,14 +286,14 @@ class PointCog(commands.Cog):
     async def point_ajouter(
         self,
         interaction: discord.Interaction,
-        cle: str,
+        joueur: str,
         nom_affichage: str,
         points_rajouter: int,
         total: int = 0,
     ) -> None:
-        key = normalize_point_key(cle)
+        key = normalize_point_key(joueur)
         if not key:
-            await interaction.response.send_message("Clé invalide.", ephemeral=True)
+            await interaction.response.send_message("Pseudo invalide.", ephemeral=True)
             return
         if point_db.get(key):
             await interaction.response.send_message(
@@ -287,9 +315,9 @@ class PointCog(commands.Cog):
             return
         await interaction.response.send_message(embed=_point_embed(entry))
 
-    @point.command(name="modifier", description="Mettre à jour les points d’un joueur (par clé)")
+    @point.command(name="modifier", description="Mettre à jour les points d’un joueur")
     @app_commands.describe(
-        cle="Clé du joueur (ex: gaylord)",
+        joueur="Pseudo du joueur (comme dans la liste)",
         nom_affichage="Nouveau nom affiché",
         points_rajouter="Nouvelle valeur « points à rajouter »",
         total="Nouveau total",
@@ -297,14 +325,17 @@ class PointCog(commands.Cog):
     async def point_modifier(
         self,
         interaction: discord.Interaction,
-        cle: str,
+        joueur: str,
         nom_affichage: Optional[str] = None,
         points_rajouter: Optional[int] = None,
         total: Optional[int] = None,
     ) -> None:
-        key = normalize_point_key(cle)
+        key = _resolve_point_key(joueur)
         if not key:
-            await interaction.response.send_message("Clé invalide.", ephemeral=True)
+            await interaction.response.send_message(
+                "Joueur introuvable. Utilise le même pseudo que dans `/point liste`.",
+                ephemeral=True,
+            )
             return
         kwargs: Dict[str, Any] = {}
         if nom_affichage is not None and nom_affichage.strip():
@@ -319,33 +350,31 @@ class PointCog(commands.Cog):
             )
             return
         if not point_db.update(key, **kwargs):
-            await interaction.response.send_message(
-                "Aucun joueur avec cette clé.", ephemeral=True
-            )
+            await interaction.response.send_message("Joueur introuvable.", ephemeral=True)
             return
         p = point_db.get(key)
         assert p is not None
         await interaction.response.send_message(embed=_point_embed(p))
 
     @point.command(name="supprimer", description="Retirer un joueur du système de points")
-    @app_commands.describe(cle="Clé du joueur")
-    async def point_supprimer(self, interaction: discord.Interaction, cle: str) -> None:
-        key = normalize_point_key(cle)
-        if not point_db.delete(key):
+    @app_commands.describe(joueur="Pseudo du joueur")
+    async def point_supprimer(self, interaction: discord.Interaction, joueur: str) -> None:
+        key = _resolve_point_key(joueur)
+        if not key or not point_db.delete(key):
             await interaction.response.send_message(
-                "Aucun joueur avec cette clé.", ephemeral=True
+                "Joueur introuvable.", ephemeral=True
             )
             return
-        await interaction.response.send_message(f"Joueur supprimé (`{key}`).")
+        await interaction.response.send_message(f"Joueur supprimé ({joueur.strip()}).")
 
     @point.command(name="fiche", description="Afficher la fiche points d’un joueur")
-    @app_commands.describe(cle="Clé du joueur (ex: gaylord)")
-    async def point_fiche(self, interaction: discord.Interaction, cle: str) -> None:
-        key = normalize_point_key(cle)
-        p = point_db.get(key)
+    @app_commands.describe(joueur="Pseudo du joueur (ex: gaylord, Picsou)")
+    async def point_fiche(self, interaction: discord.Interaction, joueur: str) -> None:
+        key = _resolve_point_key(joueur)
+        p = point_db.get(key) if key else None
         if not p:
             await interaction.response.send_message(
-                "Aucun joueur avec cette clé.", ephemeral=True
+                "Joueur introuvable.", ephemeral=True
             )
             return
         await interaction.response.send_message(embed=_point_embed(p))
@@ -358,7 +387,7 @@ class PointCog(commands.Cog):
             await interaction.followup.send("La liste est vide.")
             return
         lines = [
-            f"**{p.display_name}** — +{p.points_rajouter} pts (réf.) — **total: {p.total}** — `{p.player_key}`"
+            f"**{p.display_name}** — +{p.points_rajouter} pts (réf.) — **total: {p.total}**"
             for p in rows
         ]
         text = "\n".join(lines)
@@ -368,8 +397,8 @@ class PointCog(commands.Cog):
 def _rank_embed(r: RankEntry) -> discord.Embed:
     e = discord.Embed(title="Fiche rang", color=0xF1C40F)
     e.add_field(name="Joueur", value=r.display_name, inline=True)
-    e.add_field(name="Clé", value=f"`{r.player_key}`", inline=True)
-    e.add_field(name="Rang", value=tier_label(r.tier), inline=False)
+    e.add_field(name="Statut", value=tier_label(r.tier), inline=True)
+    e.add_field(name="Montant", value=f"{r.montant_eur} €", inline=True)
     return e
 
 
@@ -383,28 +412,35 @@ class RankCog(commands.Cog):
 
     @rank.command(name="ajouter", description="Ajouter un joueur dans la liste des rangs")
     @app_commands.describe(
-        cle="Identifiant unique (ex: kane)",
-        nom_affichage="Nom affiché",
-        rang="Niveau le plus haut atteint",
+        joueur="Pseudo du joueur (référence, ex: kane, Kane)",
+        nom_affichage="Nom affiché sur la fiche",
+        rang="Statut le plus haut (Bronze, Gold…)",
+        montant_euros="Montant en euros (défaut 0)",
     )
     @app_commands.choices(rang=_RANK_CHOICES)
     async def rank_ajouter(
         self,
         interaction: discord.Interaction,
-        cle: str,
+        joueur: str,
         nom_affichage: str,
         rang: str,
+        montant_euros: int = 0,
     ) -> None:
-        key = normalize_point_key(cle)
+        key = normalize_point_key(joueur)
         if not key:
-            await interaction.response.send_message("Clé invalide.", ephemeral=True)
+            await interaction.response.send_message("Pseudo invalide.", ephemeral=True)
             return
         if rank_db.get(key):
             await interaction.response.send_message(
                 "Ce joueur existe déjà. Utilise `/rank modifier`.", ephemeral=True
             )
             return
-        entry = RankEntry(player_key=key, display_name=nom_affichage.strip(), tier=rang)
+        entry = RankEntry(
+            player_key=key,
+            display_name=nom_affichage.strip(),
+            tier=rang,
+            montant_eur=int(montant_euros),
+        )
         try:
             rank_db.add(entry)
         except ValueError as e:
@@ -415,29 +451,67 @@ class RankCog(commands.Cog):
             return
         await interaction.response.send_message(embed=_rank_embed(entry))
 
-    @rank.command(name="modifier", description="Mettre à jour le rang d’un joueur")
+    @rank.command(name="rang", description="Changer uniquement le rang (statut) d’un joueur")
     @app_commands.describe(
-        cle="Clé du joueur",
+        joueur="Pseudo du joueur (ex: Kane, Onizuka)",
+        statut="Nouveau rang : Bronze, Argent, Gold, Emeraude…",
+    )
+    @app_commands.choices(statut=_RANK_CHOICES)
+    async def rank_rang(
+        self,
+        interaction: discord.Interaction,
+        joueur: str,
+        statut: str,
+    ) -> None:
+        key = _resolve_rank_key(joueur)
+        if not key:
+            await interaction.response.send_message(
+                "Joueur introuvable. Essaie le pseudo affiché dans `/rank liste`.",
+                ephemeral=True,
+            )
+            return
+        try:
+            ok = rank_db.update(key, tier=statut)
+        except ValueError as e:
+            await interaction.response.send_message(str(e), ephemeral=True)
+            return
+        if not ok:
+            await interaction.response.send_message("Joueur introuvable.", ephemeral=True)
+            return
+        r = rank_db.get(key)
+        assert r is not None
+        await interaction.response.send_message(embed=_rank_embed(r))
+
+    @rank.command(name="modifier", description="Mettre à jour rang, montant € ou nom affiché")
+    @app_commands.describe(
+        joueur="Pseudo du joueur (ex: Kane, kane, Onizuka)",
+        rang="Nouveau rang / statut (Bronze, Gold…)",
         nom_affichage="Nouveau nom affiché",
-        rang="Nouveau rang",
+        montant_euros="Nouveau montant en euros",
     )
     @app_commands.choices(rang=_RANK_CHOICES)
     async def rank_modifier(
         self,
         interaction: discord.Interaction,
-        cle: str,
-        nom_affichage: Optional[str] = None,
+        joueur: str,
         rang: Optional[str] = None,
+        nom_affichage: Optional[str] = None,
+        montant_euros: Optional[int] = None,
     ) -> None:
-        key = normalize_point_key(cle)
+        key = _resolve_rank_key(joueur)
         if not key:
-            await interaction.response.send_message("Clé invalide.", ephemeral=True)
+            await interaction.response.send_message(
+                "Joueur introuvable. Essaie le pseudo affiché dans `/rank liste` (ex. Kane, Onizuka).",
+                ephemeral=True,
+            )
             return
         kwargs: Dict[str, Any] = {}
         if nom_affichage is not None and nom_affichage.strip():
             kwargs["display_name"] = nom_affichage.strip()
         if rang is not None:
             kwargs["tier"] = rang
+        if montant_euros is not None:
+            kwargs["montant_eur"] = montant_euros
         if not kwargs:
             await interaction.response.send_message(
                 "Indique au moins un champ à modifier.", ephemeral=True
@@ -449,33 +523,31 @@ class RankCog(commands.Cog):
             await interaction.response.send_message(str(e), ephemeral=True)
             return
         if not ok:
-            await interaction.response.send_message(
-                "Aucun joueur avec cette clé.", ephemeral=True
-            )
+            await interaction.response.send_message("Joueur introuvable.", ephemeral=True)
             return
         r = rank_db.get(key)
         assert r is not None
         await interaction.response.send_message(embed=_rank_embed(r))
 
     @rank.command(name="supprimer", description="Retirer un joueur de la liste des rangs")
-    @app_commands.describe(cle="Clé du joueur")
-    async def rank_supprimer(self, interaction: discord.Interaction, cle: str) -> None:
-        key = normalize_point_key(cle)
-        if not rank_db.delete(key):
+    @app_commands.describe(joueur="Pseudo du joueur")
+    async def rank_supprimer(self, interaction: discord.Interaction, joueur: str) -> None:
+        key = _resolve_rank_key(joueur)
+        if not key or not rank_db.delete(key):
             await interaction.response.send_message(
-                "Aucun joueur avec cette clé.", ephemeral=True
+                "Joueur introuvable.", ephemeral=True
             )
             return
-        await interaction.response.send_message(f"Joueur supprimé (`{key}`).")
+        await interaction.response.send_message(f"Joueur supprimé ({joueur.strip()}).")
 
     @rank.command(name="fiche", description="Afficher le rang d’un joueur")
-    @app_commands.describe(cle="Clé du joueur (ex: kane)")
-    async def rank_fiche(self, interaction: discord.Interaction, cle: str) -> None:
-        key = normalize_point_key(cle)
-        r = rank_db.get(key)
+    @app_commands.describe(joueur="Pseudo du joueur (ex: Kane, Onizuka)")
+    async def rank_fiche(self, interaction: discord.Interaction, joueur: str) -> None:
+        key = _resolve_rank_key(joueur)
+        r = rank_db.get(key) if key else None
         if not r:
             await interaction.response.send_message(
-                "Aucun joueur avec cette clé.", ephemeral=True
+                "Joueur introuvable.", ephemeral=True
             )
             return
         await interaction.response.send_message(embed=_rank_embed(r))
@@ -488,7 +560,7 @@ class RankCog(commands.Cog):
             await interaction.followup.send("La liste est vide.")
             return
         lines = [
-            f"**{r.display_name}** — {tier_label(r.tier)} — `{r.player_key}`"
+            f"**{r.display_name}** — {tier_label(r.tier)} — **{r.montant_eur} €**"
             for r in rows
         ]
         text = "\n".join(lines)

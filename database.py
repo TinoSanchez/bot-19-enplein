@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 from point_seed_list import POINT_INITIAL
+from rank_seed_list import RANK_INITIAL, VALID_TIERS
 from seed_list import INITIAL_ROWS, SYNTH_DISCORD_BASE
 
 
@@ -336,6 +337,158 @@ class PointDB:
                         VALUES (?, ?, ?, ?)
                         """,
                         (key, display, bonus, 0),
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+
+
+@dataclass(frozen=True)
+class RankEntry:
+    player_key: str
+    display_name: str
+    tier: str
+
+
+class RankDB:
+    """Table `rank_players` — rang Bronze / Argent / Gold / Emeraude."""
+
+    def __init__(self, db_path: Path) -> None:
+        self._path = db_path
+        self._lock = threading.Lock()
+        self._ensure_schema()
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self._path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _ensure_schema(self) -> None:
+        with self._lock:
+            conn = self._connect()
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS rank_players (
+                    player_key TEXT PRIMARY KEY,
+                    display_name TEXT NOT NULL,
+                    tier TEXT NOT NULL
+                )
+                """
+            )
+            conn.commit()
+            conn.close()
+
+    def add(self, entry: RankEntry) -> None:
+        if entry.tier not in VALID_TIERS:
+            raise ValueError(f"tier invalide: {entry.tier}")
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO rank_players (player_key, display_name, tier)
+                    VALUES (?, ?, ?)
+                    """,
+                    (entry.player_key, entry.display_name, entry.tier),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+    def update(
+        self,
+        player_key: str,
+        *,
+        display_name: Optional[str] = None,
+        tier: Optional[str] = None,
+    ) -> bool:
+        fields: dict[str, Any] = {}
+        if display_name is not None and str(display_name).strip():
+            fields["display_name"] = str(display_name).strip()
+        if tier is not None:
+            t = str(tier).strip().lower()
+            if t not in VALID_TIERS:
+                raise ValueError(f"tier invalide: {tier}")
+            fields["tier"] = t
+        if not fields:
+            return False
+        cols = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values()) + [player_key]
+        with self._lock:
+            conn = self._connect()
+            try:
+                cur = conn.execute(
+                    f"UPDATE rank_players SET {cols} WHERE player_key = ?",
+                    values,
+                )
+                conn.commit()
+                return cur.rowcount > 0
+            finally:
+                conn.close()
+
+    def delete(self, player_key: str) -> bool:
+        with self._lock:
+            conn = self._connect()
+            try:
+                cur = conn.execute("DELETE FROM rank_players WHERE player_key = ?", (player_key,))
+                conn.commit()
+                return cur.rowcount > 0
+            finally:
+                conn.close()
+
+    def get(self, player_key: str) -> Optional[RankEntry]:
+        with self._lock:
+            conn = self._connect()
+            try:
+                row = conn.execute(
+                    "SELECT player_key, display_name, tier FROM rank_players WHERE player_key = ?",
+                    (player_key,),
+                ).fetchone()
+            finally:
+                conn.close()
+        if row is None:
+            return None
+        return RankEntry(
+            player_key=row["player_key"],
+            display_name=row["display_name"],
+            tier=row["tier"],
+        )
+
+    def list_all(self) -> List[RankEntry]:
+        order_sql = (
+            "CASE tier "
+            "WHEN 'emeraude' THEN 4 WHEN 'gold' THEN 3 WHEN 'argent' THEN 2 "
+            "WHEN 'bronze' THEN 1 ELSE 0 END DESC, display_name COLLATE NOCASE"
+        )
+        with self._lock:
+            conn = self._connect()
+            try:
+                rows = conn.execute(
+                    f"SELECT player_key, display_name, tier FROM rank_players ORDER BY {order_sql}"
+                ).fetchall()
+            finally:
+                conn.close()
+        return [
+            RankEntry(player_key=r["player_key"], display_name=r["display_name"], tier=r["tier"])
+            for r in rows
+        ]
+
+    def seed_ranks_if_empty(self) -> None:
+        with self._lock:
+            conn = self._connect()
+            try:
+                n = int(conn.execute("SELECT COUNT(*) FROM rank_players").fetchone()[0])
+                if n > 0:
+                    return
+                for key, display, tier in RANK_INITIAL:
+                    if tier not in VALID_TIERS:
+                        continue
+                    conn.execute(
+                        """
+                        INSERT INTO rank_players (player_key, display_name, tier)
+                        VALUES (?, ?, ?)
+                        """,
+                        (key, display, tier),
                     )
                 conn.commit()
             finally:

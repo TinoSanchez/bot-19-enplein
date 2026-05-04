@@ -16,8 +16,9 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from database import Player, PlayerDB, PointDB, PointEntry
+from database import Player, PlayerDB, PointDB, PointEntry, RankDB, RankEntry
 from point_seed_list import normalize_point_key
+from rank_seed_list import tier_label
 
 load_dotenv()
 
@@ -37,6 +38,17 @@ db.seed_if_empty()
 
 point_db = PointDB(DB_PATH)
 point_db.seed_points_if_empty()
+
+rank_db = RankDB(DB_PATH)
+rank_db.seed_ranks_if_empty()
+
+_RANK_CHOICES = [
+    app_commands.Choice(name="— Aucun", value="none"),
+    app_commands.Choice(name="Bronze 15€", value="bronze"),
+    app_commands.Choice(name="Argent 30€", value="argent"),
+    app_commands.Choice(name="Gold 50€", value="gold"),
+    app_commands.Choice(name="Emeraude 100€", value="emeraude"),
+]
 
 
 def _player_embed(p: Player) -> discord.Embed:
@@ -341,6 +353,145 @@ class PointCog(commands.Cog):
                 await interaction.followup.send(chunk)
 
 
+def _rank_embed(r: RankEntry) -> discord.Embed:
+    e = discord.Embed(title="Fiche rang", color=0xF1C40F)
+    e.add_field(name="Joueur", value=r.display_name, inline=True)
+    e.add_field(name="Clé", value=f"`{r.player_key}`", inline=True)
+    e.add_field(name="Rang", value=tier_label(r.tier), inline=False)
+    return e
+
+
+class RankCog(commands.Cog):
+    rank = app_commands.Group(
+        name="rank", description="Rangs Bronze / Argent / Gold / Emeraude"
+    )
+
+    def __init__(self, bot: commands.Bot) -> None:
+        self.bot = bot
+
+    @rank.command(name="ajouter", description="Ajouter un joueur dans la liste des rangs")
+    @app_commands.describe(
+        cle="Identifiant unique (ex: kane)",
+        nom_affichage="Nom affiché",
+        rang="Niveau le plus haut atteint",
+    )
+    @app_commands.choices(rang=_RANK_CHOICES)
+    async def rank_ajouter(
+        self,
+        interaction: discord.Interaction,
+        cle: str,
+        nom_affichage: str,
+        rang: str,
+    ) -> None:
+        key = normalize_point_key(cle)
+        if not key:
+            await interaction.response.send_message("Clé invalide.", ephemeral=True)
+            return
+        if rank_db.get(key):
+            await interaction.response.send_message(
+                "Ce joueur existe déjà. Utilise `/rank modifier`.", ephemeral=True
+            )
+            return
+        entry = RankEntry(player_key=key, display_name=nom_affichage.strip(), tier=rang)
+        try:
+            rank_db.add(entry)
+        except ValueError as e:
+            await interaction.response.send_message(str(e), ephemeral=True)
+            return
+        except sqlite3.IntegrityError:
+            await interaction.response.send_message("Ce joueur existe déjà.", ephemeral=True)
+            return
+        await interaction.response.send_message(embed=_rank_embed(entry))
+
+    @rank.command(name="modifier", description="Mettre à jour le rang d’un joueur")
+    @app_commands.describe(
+        cle="Clé du joueur",
+        nom_affichage="Nouveau nom affiché",
+        rang="Nouveau rang",
+    )
+    @app_commands.choices(rang=_RANK_CHOICES)
+    async def rank_modifier(
+        self,
+        interaction: discord.Interaction,
+        cle: str,
+        nom_affichage: Optional[str] = None,
+        rang: Optional[str] = None,
+    ) -> None:
+        key = normalize_point_key(cle)
+        if not key:
+            await interaction.response.send_message("Clé invalide.", ephemeral=True)
+            return
+        kwargs: Dict[str, Any] = {}
+        if nom_affichage is not None and nom_affichage.strip():
+            kwargs["display_name"] = nom_affichage.strip()
+        if rang is not None:
+            kwargs["tier"] = rang
+        if not kwargs:
+            await interaction.response.send_message(
+                "Indique au moins un champ à modifier.", ephemeral=True
+            )
+            return
+        try:
+            ok = rank_db.update(key, **kwargs)
+        except ValueError as e:
+            await interaction.response.send_message(str(e), ephemeral=True)
+            return
+        if not ok:
+            await interaction.response.send_message(
+                "Aucun joueur avec cette clé.", ephemeral=True
+            )
+            return
+        r = rank_db.get(key)
+        assert r is not None
+        await interaction.response.send_message(embed=_rank_embed(r))
+
+    @rank.command(name="supprimer", description="Retirer un joueur de la liste des rangs")
+    @app_commands.describe(cle="Clé du joueur")
+    async def rank_supprimer(self, interaction: discord.Interaction, cle: str) -> None:
+        key = normalize_point_key(cle)
+        if not rank_db.delete(key):
+            await interaction.response.send_message(
+                "Aucun joueur avec cette clé.", ephemeral=True
+            )
+            return
+        await interaction.response.send_message(f"Joueur supprimé (`{key}`).")
+
+    @rank.command(name="fiche", description="Afficher le rang d’un joueur")
+    @app_commands.describe(cle="Clé du joueur (ex: kane)")
+    async def rank_fiche(self, interaction: discord.Interaction, cle: str) -> None:
+        key = normalize_point_key(cle)
+        r = rank_db.get(key)
+        if not r:
+            await interaction.response.send_message(
+                "Aucun joueur avec cette clé.", ephemeral=True
+            )
+            return
+        await interaction.response.send_message(embed=_rank_embed(r))
+
+    @rank.command(name="liste", description="Lister tous les rangs")
+    async def rank_liste(self, interaction: discord.Interaction) -> None:
+        rows = rank_db.list_all()
+        if not rows:
+            await interaction.response.send_message("La liste est vide.")
+            return
+        lines = [
+            f"**{r.display_name}** — {tier_label(r.tier)} — `{r.player_key}`"
+            for r in rows
+        ]
+        text = "\n".join(lines)
+        if len(text) <= 3900:
+            await interaction.response.send_message(text)
+            return
+        await interaction.response.defer()
+        chunk_size = 3800
+        for i in range(0, len(text), chunk_size):
+            chunk = text[i : i + chunk_size]
+            if i == 0:
+                await interaction.followup.send(chunk)
+            else:
+                await interaction.followup.send(chunk)
+
+
 class Bot19(commands.Bot):
     def __init__(self) -> None:
         super().__init__(command_prefix="!", intents=intents, help_command=None)
@@ -348,6 +499,7 @@ class Bot19(commands.Bot):
     async def setup_hook(self) -> None:
         await self.add_cog(AffiCog(self))
         await self.add_cog(PointCog(self))
+        await self.add_cog(RankCog(self))
         if GUILD_ID:
             await self.tree.sync(guild=discord.Object(id=GUILD_ID))
         else:

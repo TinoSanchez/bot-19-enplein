@@ -9,14 +9,15 @@ import os
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from database import Player, PlayerDB
+from database import Player, PlayerDB, PointDB, PointEntry
+from point_seed_list import normalize_point_key
 
 load_dotenv()
 
@@ -33,6 +34,9 @@ intents = discord.Intents.default()
 
 db = PlayerDB(DB_PATH)
 db.seed_if_empty()
+
+point_db = PointDB(DB_PATH)
+point_db.seed_points_if_empty()
 
 
 def _player_embed(p: Player) -> discord.Embed:
@@ -193,12 +197,157 @@ class AffiCog(commands.Cog):
                 await interaction.followup.send(chunk)
 
 
+def _point_embed(p: PointEntry) -> discord.Embed:
+    e = discord.Embed(title="Fiche points", color=0x57F287)
+    e.add_field(name="Joueur", value=p.display_name, inline=True)
+    e.add_field(name="Clé", value=f"`{p.player_key}`", inline=True)
+    e.add_field(name="\u200b", value="\u200b", inline=False)
+    e.add_field(name="Points à rajouter", value=str(p.points_rajouter), inline=True)
+    e.add_field(name="Total", value=str(p.total), inline=True)
+    return e
+
+
+class PointCog(commands.Cog):
+    point = app_commands.Group(
+        name="point", description="Gérer les points (liste stream / classement)"
+    )
+
+    def __init__(self, bot: commands.Bot) -> None:
+        self.bot = bot
+
+    @point.command(name="ajouter", description="Ajouter un joueur dans le système de points")
+    @app_commands.describe(
+        cle="Identifiant unique (ex: gaylord, sans espaces)",
+        nom_affichage="Nom affiché",
+        points_rajouter="Points à rajouter (référence)",
+        total="Total actuel (défaut 0)",
+    )
+    async def point_ajouter(
+        self,
+        interaction: discord.Interaction,
+        cle: str,
+        nom_affichage: str,
+        points_rajouter: int,
+        total: int = 0,
+    ) -> None:
+        key = normalize_point_key(cle)
+        if not key:
+            await interaction.response.send_message("Clé invalide.", ephemeral=True)
+            return
+        if point_db.get(key):
+            await interaction.response.send_message(
+                "Ce joueur existe déjà. Utilise `/point modifier`.", ephemeral=True
+            )
+            return
+        entry = PointEntry(
+            player_key=key,
+            display_name=nom_affichage.strip(),
+            points_rajouter=int(points_rajouter),
+            total=int(total),
+        )
+        try:
+            point_db.add(entry)
+        except sqlite3.IntegrityError:
+            await interaction.response.send_message(
+                "Ce joueur existe déjà.", ephemeral=True
+            )
+            return
+        await interaction.response.send_message(embed=_point_embed(entry))
+
+    @point.command(name="modifier", description="Mettre à jour les points d’un joueur (par clé)")
+    @app_commands.describe(
+        cle="Clé du joueur (ex: gaylord)",
+        nom_affichage="Nouveau nom affiché",
+        points_rajouter="Nouvelle valeur « points à rajouter »",
+        total="Nouveau total",
+    )
+    async def point_modifier(
+        self,
+        interaction: discord.Interaction,
+        cle: str,
+        nom_affichage: Optional[str] = None,
+        points_rajouter: Optional[int] = None,
+        total: Optional[int] = None,
+    ) -> None:
+        key = normalize_point_key(cle)
+        if not key:
+            await interaction.response.send_message("Clé invalide.", ephemeral=True)
+            return
+        kwargs: Dict[str, Any] = {}
+        if nom_affichage is not None and nom_affichage.strip():
+            kwargs["display_name"] = nom_affichage.strip()
+        if points_rajouter is not None:
+            kwargs["points_rajouter"] = points_rajouter
+        if total is not None:
+            kwargs["total"] = total
+        if not kwargs:
+            await interaction.response.send_message(
+                "Indique au moins un champ à modifier.", ephemeral=True
+            )
+            return
+        if not point_db.update(key, **kwargs):
+            await interaction.response.send_message(
+                "Aucun joueur avec cette clé.", ephemeral=True
+            )
+            return
+        p = point_db.get(key)
+        assert p is not None
+        await interaction.response.send_message(embed=_point_embed(p))
+
+    @point.command(name="supprimer", description="Retirer un joueur du système de points")
+    @app_commands.describe(cle="Clé du joueur")
+    async def point_supprimer(self, interaction: discord.Interaction, cle: str) -> None:
+        key = normalize_point_key(cle)
+        if not point_db.delete(key):
+            await interaction.response.send_message(
+                "Aucun joueur avec cette clé.", ephemeral=True
+            )
+            return
+        await interaction.response.send_message(f"Joueur supprimé (`{key}`).")
+
+    @point.command(name="fiche", description="Afficher la fiche points d’un joueur")
+    @app_commands.describe(cle="Clé du joueur (ex: gaylord)")
+    async def point_fiche(self, interaction: discord.Interaction, cle: str) -> None:
+        key = normalize_point_key(cle)
+        p = point_db.get(key)
+        if not p:
+            await interaction.response.send_message(
+                "Aucun joueur avec cette clé.", ephemeral=True
+            )
+            return
+        await interaction.response.send_message(embed=_point_embed(p))
+
+    @point.command(name="liste", description="Lister tous les joueurs et leurs points")
+    async def point_liste(self, interaction: discord.Interaction) -> None:
+        rows = point_db.list_all()
+        if not rows:
+            await interaction.response.send_message("La liste est vide.")
+            return
+        lines = [
+            f"**{p.display_name}** — +{p.points_rajouter} pts (réf.) — **total: {p.total}** — `{p.player_key}`"
+            for p in rows
+        ]
+        text = "\n".join(lines)
+        if len(text) <= 3900:
+            await interaction.response.send_message(text)
+            return
+        await interaction.response.defer()
+        chunk_size = 3800
+        for i in range(0, len(text), chunk_size):
+            chunk = text[i : i + chunk_size]
+            if i == 0:
+                await interaction.followup.send(chunk)
+            else:
+                await interaction.followup.send(chunk)
+
+
 class Bot19(commands.Bot):
     def __init__(self) -> None:
         super().__init__(command_prefix="!", intents=intents, help_command=None)
 
     async def setup_hook(self) -> None:
         await self.add_cog(AffiCog(self))
+        await self.add_cog(PointCog(self))
         if GUILD_ID:
             await self.tree.sync(guild=discord.Object(id=GUILD_ID))
         else:

@@ -6,8 +6,9 @@ import sqlite3
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
+from point_seed_list import POINT_INITIAL
 from seed_list import INITIAL_ROWS, SYNTH_DISCORD_BASE
 
 
@@ -179,6 +180,162 @@ class PlayerDB:
                             g_id,
                             _normalize_kyc(kyc_raw),
                         ),
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+
+
+@dataclass(frozen=True)
+class PointEntry:
+    player_key: str
+    display_name: str
+    points_rajouter: int
+    total: int
+
+
+class PointDB:
+    """Table `point_players` dans le même fichier SQLite que les affiliés."""
+
+    def __init__(self, db_path: Path) -> None:
+        self._path = db_path
+        self._lock = threading.Lock()
+        self._ensure_schema()
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self._path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _ensure_schema(self) -> None:
+        with self._lock:
+            conn = self._connect()
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS point_players (
+                    player_key TEXT PRIMARY KEY,
+                    display_name TEXT NOT NULL,
+                    points_rajouter INTEGER NOT NULL,
+                    total INTEGER NOT NULL DEFAULT 0
+                )
+                """
+            )
+            conn.commit()
+            conn.close()
+
+    def add(self, entry: PointEntry) -> None:
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO point_players (player_key, display_name, points_rajouter, total)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        entry.player_key,
+                        entry.display_name,
+                        entry.points_rajouter,
+                        entry.total,
+                    ),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+    def update(
+        self,
+        player_key: str,
+        *,
+        display_name: Optional[str] = None,
+        points_rajouter: Optional[int] = None,
+        total: Optional[int] = None,
+    ) -> bool:
+        fields: dict[str, Any] = {}
+        if display_name is not None and str(display_name).strip():
+            fields["display_name"] = str(display_name).strip()
+        if points_rajouter is not None:
+            fields["points_rajouter"] = int(points_rajouter)
+        if total is not None:
+            fields["total"] = int(total)
+        if not fields:
+            return False
+        cols = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values()) + [player_key]
+        with self._lock:
+            conn = self._connect()
+            try:
+                cur = conn.execute(
+                    f"UPDATE point_players SET {cols} WHERE player_key = ?",
+                    values,
+                )
+                conn.commit()
+                return cur.rowcount > 0
+            finally:
+                conn.close()
+
+    def delete(self, player_key: str) -> bool:
+        with self._lock:
+            conn = self._connect()
+            try:
+                cur = conn.execute("DELETE FROM point_players WHERE player_key = ?", (player_key,))
+                conn.commit()
+                return cur.rowcount > 0
+            finally:
+                conn.close()
+
+    def get(self, player_key: str) -> Optional[PointEntry]:
+        with self._lock:
+            conn = self._connect()
+            try:
+                row = conn.execute(
+                    "SELECT player_key, display_name, points_rajouter, total FROM point_players WHERE player_key = ?",
+                    (player_key,),
+                ).fetchone()
+            finally:
+                conn.close()
+        if row is None:
+            return None
+        return PointEntry(
+            player_key=row["player_key"],
+            display_name=row["display_name"],
+            points_rajouter=int(row["points_rajouter"]),
+            total=int(row["total"]),
+        )
+
+    def list_all(self) -> List[PointEntry]:
+        with self._lock:
+            conn = self._connect()
+            try:
+                rows = conn.execute(
+                    "SELECT player_key, display_name, points_rajouter, total FROM point_players ORDER BY display_name COLLATE NOCASE"
+                ).fetchall()
+            finally:
+                conn.close()
+        return [
+            PointEntry(
+                player_key=r["player_key"],
+                display_name=r["display_name"],
+                points_rajouter=int(r["points_rajouter"]),
+                total=int(r["total"]),
+            )
+            for r in rows
+        ]
+
+    def seed_points_if_empty(self) -> None:
+        with self._lock:
+            conn = self._connect()
+            try:
+                n = int(conn.execute("SELECT COUNT(*) FROM point_players").fetchone()[0])
+                if n > 0:
+                    return
+                for key, display, bonus in POINT_INITIAL:
+                    conn.execute(
+                        """
+                        INSERT INTO point_players (player_key, display_name, points_rajouter, total)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (key, display, bonus, 0),
                     )
                 conn.commit()
             finally:

@@ -289,27 +289,27 @@ def _render_list_png(
     heading: str,
     rgb: Tuple[int, int, int],
 ) -> BytesIO:
-    # Rendu ×2 (largeur + corps / titre) pour lisibilité maximale — image plus lourde, Discord autorise ~8 Mo.
-    W = 2560
-    pad = 32
+    # Rendu ×3 (par rapport à la base lisible 14px / 1280px de large) — PNG très lourde si la liste est longue.
+    W = 3840
+    pad = 48
     bg = (10, 14, 20)
     gold = (249, 200, 14)
-    font = _load_list_font(28)
-    font_head = _load_list_font(40)
-    img = Image.new("RGB", (W, 12000), bg)
+    font = _load_list_font(42)
+    font_head = _load_list_font(60)
+    img = Image.new("RGB", (W, 18000), bg)
     draw = ImageDraw.Draw(img)
     bbox = draw.textbbox((0, 0), "Hg", font=font)
-    line_h = bbox[3] - bbox[1] + 10
+    line_h = bbox[3] - bbox[1] + 15
     y = pad
     draw.text((pad, y), heading, fill=gold, font=font_head)
-    y += line_h + 24
+    y += line_h + 36
     max_txt = float(W - 2 * pad)
     for row in lines:
         fitted = _fit_line_pixels(draw, row, font, max_txt)
         draw.text((pad, y), fitted, fill=rgb, font=font)
         y += line_h
     y += pad
-    img = img.crop((0, 0, W, min(y, 12000)))
+    img = img.crop((0, 0, W, min(y, 18000)))
     buf = BytesIO()
     img.save(buf, format="PNG", optimize=True)
     buf.seek(0)

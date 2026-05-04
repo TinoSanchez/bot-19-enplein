@@ -160,9 +160,8 @@ _LIST_PNG_WIDTH = min(920 * _LIST_PNG_SCALE, _PNG_MAX_SIDE)
 _LIST_PNG_PAD = min(14 * _LIST_PNG_SCALE, 160)
 _LIST_PNG_LINE_EXTRA = min(4 * _LIST_PNG_SCALE, 48)
 _LIST_PNG_HEAD_GAP = min(10 * _LIST_PNG_SCALE, 120)
-_LIST_PNG_CANVAS_MAX = min(7000 * _LIST_PNG_SCALE, _PNG_MAX_SIDE)
-# Peu de lignes par image à très grande échelle (taille fichier Discord ~8 Mo).
-_LIST_PNG_MAX_ROWS = max(5, min(100, 200 // _LIST_PNG_SCALE))
+# Garde-fou hauteur totale (liste entière sur une image) — sinon fallback texte.
+_LIST_PNG_MAX_HEIGHT = 120_000
 _LIST_PNG_BG = (10, 14, 20)
 _LIST_PNG_TEXT = (230, 235, 245)
 _LIST_PNG_HEAD = (249, 200, 14)
@@ -261,12 +260,6 @@ def _list_render_prefers_png() -> bool:
     return v not in ("1", "true", "oui", "yes", "on")
 
 
-def _split_lines_for_png(lines: List[str], max_rows: int = _LIST_PNG_MAX_ROWS) -> List[List[str]]:
-    if not lines:
-        return []
-    return [lines[i : i + max_rows] for i in range(0, len(lines), max_rows)]
-
-
 def _load_png_font(size: int) -> Any:
     paths = [
         ROOT / "assets" / "DejaVuSansMono.ttf",
@@ -306,25 +299,36 @@ def _fit_png_line(draw: Any, text: str, font: Any, max_px: float) -> str:
 
 
 def _render_list_png_small(lines: List[str], heading: str) -> BytesIO:
-    """Liste en image ; taille pilotée par _LIST_PNG_SCALE (police + marges + toile)."""
+    """Une seule image pour toute la liste ; hauteur calculée (taille = _LIST_PNG_SCALE)."""
     W = _LIST_PNG_WIDTH
     pad = _LIST_PNG_PAD
     font = _load_png_font(_LIST_PNG_FONT_BODY)
     font_h = _load_png_font(_LIST_PNG_FONT_HEAD)
-    img = Image.new("RGB", (W, _LIST_PNG_CANVAS_MAX), _LIST_PNG_BG)
-    draw = ImageDraw.Draw(img)
-    bbox = draw.textbbox((0, 0), "Hg", font=font)
+
+    tmp = Image.new("RGB", (W, 64), _LIST_PNG_BG)
+    td = ImageDraw.Draw(tmp)
+    bbox = td.textbbox((0, 0), "Hg", font=font)
     line_h = bbox[3] - bbox[1] + _LIST_PNG_LINE_EXTRA
+    hb = td.textbbox((0, 0), heading, font=font_h)
+    head_h = hb[3] - hb[1]
+
+    n = len(lines)
+    needed_h = pad + head_h + _LIST_PNG_HEAD_GAP + n * line_h + pad + 24
+    if needed_h > _LIST_PNG_MAX_HEIGHT:
+        raise RuntimeError("LIST_IMAGE_TOO_TALL")
+
+    img = Image.new("RGB", (W, needed_h), _LIST_PNG_BG)
+    draw = ImageDraw.Draw(img)
     y = pad
     draw.text((pad, y), heading, fill=_LIST_PNG_HEAD, font=font_h)
-    y += line_h + _LIST_PNG_HEAD_GAP
+    y += head_h + _LIST_PNG_HEAD_GAP
     max_txt = float(W - 2 * pad)
     for row in lines:
         fitted = _fit_png_line(draw, row, font, max_txt)
         draw.text((pad, y), fitted, fill=_LIST_PNG_TEXT, font=font)
         y += line_h
     y += pad
-    img = img.crop((0, 0, W, min(y, _LIST_PNG_CANVAS_MAX)))
+    img = img.crop((0, 0, W, y))
     buf = BytesIO()
     img.save(buf, format="PNG", optimize=True)
     buf.seek(0)
@@ -403,42 +407,28 @@ async def _followup_send_branded_list(
 
         if _list_render_prefers_png():
             try:
-                batches = _split_lines_for_png(line_list)
-                nbat = len(batches)
-                for i, batch in enumerate(batches):
-                    idx = i + 1
-                    head_p = (
-                        list_heading if nbat == 1 else f"{list_heading}  ({idx}/{nbat})"
+                png_buf = _render_list_png_small(line_list, list_heading)
+                desc = f"**{list_heading}**"
+                e = discord.Embed(
+                    title=f"{emoji} **{_BRAND}**",
+                    description=desc,
+                    color=accent,
+                    timestamp=discord.utils.utcnow(),
+                )
+                e.set_footer(text=f"🔥 {_BRAND} · {footer_hint}")
+                e.set_image(url="attachment://liste.png")
+                list_f = discord.File(png_buf, filename="liste.png")
+                if has_logo:
+                    e.set_thumbnail(url=f"attachment://{fn}")
+                    await interaction.followup.send(
+                        embed=e,
+                        files=[
+                            discord.File(_LOGO_PATH, filename=fn),
+                            list_f,
+                        ],
                     )
-                    png_buf = _render_list_png_small(batch, head_p)
-                    fname = "liste.png" if nbat == 1 else f"liste_{idx}.png"
-                    sub = ""
-                    if nbat > 1:
-                        sub = f"\n`▰▰▰` **{idx}** / **{nbat}** `▰▰▰`\n"
-                    desc = f"**{list_heading}**{sub}"
-                    e = discord.Embed(
-                        title=f"{emoji} **{_BRAND}**",
-                        description=desc,
-                        color=accent,
-                        timestamp=discord.utils.utcnow(),
-                    )
-                    foot = f"🔥 {_BRAND} · {footer_hint}"
-                    if nbat > 1:
-                        foot += f" · {idx}/{nbat}"
-                    e.set_footer(text=foot)
-                    e.set_image(url=f"attachment://{fname}")
-                    list_f = discord.File(png_buf, filename=fname)
-                    if i == 0 and has_logo:
-                        e.set_thumbnail(url=f"attachment://{fn}")
-                        await interaction.followup.send(
-                            embed=e,
-                            files=[
-                                discord.File(_LOGO_PATH, filename=fn),
-                                list_f,
-                            ],
-                        )
-                    else:
-                        await interaction.followup.send(embed=e, files=[list_f])
+                else:
+                    await interaction.followup.send(embed=e, files=[list_f])
                 return
             except Exception:
                 pass

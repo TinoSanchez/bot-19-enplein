@@ -1,6 +1,8 @@
 """
 Liste initiale (Nom, pseudo Gamdom / user name, ID Gamdom, KYC).
-Les IDs numériques du tableau = ID Gamdom. ID Discord interne = synthétique si inconnu.
+Colonne « ID » du tableur = ID Gamdom (Gaylord 47780481, Onizuka 47720994, Tazer 47871236, etc.).
+ID Discord côté bot = synthétique 9100… si inconnu.
+Si tu avais déjà une base sans ces IDs : /affi modifier id_discord + id_gamdom, ou vider players.db pour re-seed.
 """
 
 from typing import List, Tuple

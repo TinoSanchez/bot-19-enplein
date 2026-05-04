@@ -6,6 +6,7 @@ import sqlite3
 import threading
 from dataclasses import dataclass
 from pathlib import Path
+from typing import List, Optional
 
 
 @dataclass(frozen=True)
@@ -95,7 +96,7 @@ class PlayerDB:
             finally:
                 conn.close()
 
-    def get(self, discord_id: str) -> Player | None:
+    def get(self, discord_id: str) -> Optional[Player]:
         with self._lock:
             conn = self._connect()
             try:
@@ -115,7 +116,7 @@ class PlayerDB:
             kyc_level=row["kyc_level"],
         )
 
-    def list_all(self) -> list[Player]:
+    def list_all(self) -> List[Player]:
         with self._lock:
             conn = self._connect()
             try:

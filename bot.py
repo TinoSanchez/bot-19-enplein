@@ -9,6 +9,7 @@ import os
 import sqlite3
 import sys
 from pathlib import Path
+from typing import Dict, Optional
 
 import discord
 from discord import app_commands
@@ -107,16 +108,16 @@ class JoueurCog(commands.Cog):
         self,
         interaction: discord.Interaction,
         id_discord: str,
-        pseudo_discord: str | None = None,
-        pseudo_gamdom: str | None = None,
-        id_gamdom: str | None = None,
-        niveau_kyc: str | None = None,
+        pseudo_discord: Optional[str] = None,
+        pseudo_gamdom: Optional[str] = None,
+        id_gamdom: Optional[str] = None,
+        niveau_kyc: Optional[str] = None,
     ) -> None:
         id_discord = id_discord.strip()
         if not id_discord.isdigit():
             await interaction.response.send_message("ID Discord invalide.", ephemeral=True)
             return
-        kwargs: dict[str, str] = {}
+        kwargs: Dict[str, str] = {}
         if pseudo_discord is not None and pseudo_discord.strip():
             kwargs["discord_username"] = pseudo_discord.strip()
         if pseudo_gamdom is not None and pseudo_gamdom.strip():

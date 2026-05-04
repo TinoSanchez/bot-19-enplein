@@ -32,6 +32,7 @@ DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 intents = discord.Intents.default()
 
 db = PlayerDB(DB_PATH)
+db.seed_if_empty()
 
 
 def _player_embed(p: Player) -> discord.Embed:
@@ -45,13 +46,15 @@ def _player_embed(p: Player) -> discord.Embed:
     return e
 
 
-class JoueurCog(commands.Cog):
-    joueur = app_commands.Group(name="joueur", description="Gérer la liste des joueurs Gamdom")
+class AffiCog(commands.Cog):
+    affi = app_commands.Group(
+        name="affi", description="Gérer la liste des affiliés (Gamdom / KYC)"
+    )
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    @joueur.command(name="ajouter", description="Ajouter un joueur à la liste")
+    @affi.command(name="ajouter", description="Ajouter un affilié à la liste")
     @app_commands.describe(
         pseudo_discord="Pseudo Discord (affichage)",
         id_discord="ID Discord du membre (chiffres)",
@@ -59,7 +62,7 @@ class JoueurCog(commands.Cog):
         id_gamdom="Identifiant Gamdom",
         niveau_kyc="Niveau de vérification KYC (ex. 0, 1, 2…)",
     )
-    async def joueur_ajouter(
+    async def affi_ajouter(
         self,
         interaction: discord.Interaction,
         pseudo_discord: str,
@@ -76,7 +79,7 @@ class JoueurCog(commands.Cog):
             return
         if db.get(id_discord):
             await interaction.response.send_message(
-                "Ce joueur existe déjà (même ID Discord). Utilise `/joueur modifier`.",
+                "Ce joueur existe déjà (même ID Discord). Utilise `/affi modifier`.",
                 ephemeral=True,
             )
             return
@@ -96,7 +99,7 @@ class JoueurCog(commands.Cog):
             return
         await interaction.response.send_message(embed=_player_embed(player))
 
-    @joueur.command(name="modifier", description="Mettre à jour un joueur (par ID Discord)")
+    @affi.command(name="modifier", description="Mettre à jour un affilié (par ID Discord)")
     @app_commands.describe(
         id_discord="ID Discord du joueur à modifier",
         pseudo_discord="Nouveau pseudo Discord (laisser vide pour ne pas changer)",
@@ -104,7 +107,7 @@ class JoueurCog(commands.Cog):
         id_gamdom="Nouvel ID Gamdom",
         niveau_kyc="Nouveau niveau KYC",
     )
-    async def joueur_modifier(
+    async def affi_modifier(
         self,
         interaction: discord.Interaction,
         id_discord: str,
@@ -140,9 +143,9 @@ class JoueurCog(commands.Cog):
         assert p is not None
         await interaction.response.send_message(embed=_player_embed(p))
 
-    @joueur.command(name="supprimer", description="Retirer un joueur de la liste")
+    @affi.command(name="supprimer", description="Retirer un affilié de la liste")
     @app_commands.describe(id_discord="ID Discord du joueur à supprimer")
-    async def joueur_supprimer(self, interaction: discord.Interaction, id_discord: str) -> None:
+    async def affi_supprimer(self, interaction: discord.Interaction, id_discord: str) -> None:
         id_discord = id_discord.strip()
         if not id_discord.isdigit():
             await interaction.response.send_message("ID Discord invalide.", ephemeral=True)
@@ -154,9 +157,9 @@ class JoueurCog(commands.Cog):
             return
         await interaction.response.send_message(f"Joueur supprimé (`{id_discord}`).")
 
-    @joueur.command(name="fiche", description="Afficher la fiche d’un joueur")
+    @affi.command(name="fiche", description="Afficher la fiche d’un affilié")
     @app_commands.describe(id_discord="ID Discord du joueur")
-    async def joueur_fiche(self, interaction: discord.Interaction, id_discord: str) -> None:
+    async def affi_fiche(self, interaction: discord.Interaction, id_discord: str) -> None:
         id_discord = id_discord.strip()
         p = db.get(id_discord)
         if not p:
@@ -166,8 +169,8 @@ class JoueurCog(commands.Cog):
             return
         await interaction.response.send_message(embed=_player_embed(p))
 
-    @joueur.command(name="liste", description="Lister tous les joueurs enregistrés")
-    async def joueur_liste(self, interaction: discord.Interaction) -> None:
+    @affi.command(name="liste", description="Lister tous les affiliés enregistrés")
+    async def affi_liste(self, interaction: discord.Interaction) -> None:
         players = db.list_all()
         if not players:
             await interaction.response.send_message("La liste est vide.")
@@ -195,7 +198,7 @@ class Bot19(commands.Bot):
         super().__init__(command_prefix="!", intents=intents, help_command=None)
 
     async def setup_hook(self) -> None:
-        await self.add_cog(JoueurCog(self))
+        await self.add_cog(AffiCog(self))
         if GUILD_ID:
             await self.tree.sync(guild=discord.Object(id=GUILD_ID))
         else:

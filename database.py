@@ -8,6 +8,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
+from seed_list import INITIAL_ROWS, SYNTH_DISCORD_BASE
+
+
+def _normalize_kyc(raw: str) -> str:
+    s = (raw or "").strip().lower()
+    if s in ("oui", "yes", "o", "vrai"):
+        return "Oui"
+    if not s:
+        return "—"
+    return raw.strip() if raw.strip() else "—"
+
 
 @dataclass(frozen=True)
 class Player:
@@ -135,3 +146,40 @@ class PlayerDB:
             )
             for r in rows
         ]
+
+    def count_players(self) -> int:
+        with self._lock:
+            conn = self._connect()
+            try:
+                return int(conn.execute("SELECT COUNT(*) FROM players").fetchone()[0])
+            finally:
+                conn.close()
+
+    def seed_if_empty(self) -> None:
+        """Insère la liste initiale une seule fois si la table est vide."""
+        with self._lock:
+            conn = self._connect()
+            try:
+                n = int(conn.execute("SELECT COUNT(*) FROM players").fetchone()[0])
+                if n > 0:
+                    return
+                for i, (nom, user_name, gamdom_id, kyc_raw) in enumerate(INITIAL_ROWS):
+                    discord_id = str(SYNTH_DISCORD_BASE + i)
+                    g_user = user_name.strip() if user_name.strip() else nom.strip()
+                    g_id = gamdom_id.strip() if gamdom_id.strip() else "0"
+                    conn.execute(
+                        """
+                        INSERT INTO players (discord_id, discord_username, gamdom_username, gamdom_id, kyc_level)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (
+                            discord_id,
+                            nom.strip(),
+                            g_user,
+                            g_id,
+                            _normalize_kyc(kyc_raw),
+                        ),
+                    )
+                conn.commit()
+            finally:
+                conn.close()

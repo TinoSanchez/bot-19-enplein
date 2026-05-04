@@ -10,7 +10,7 @@ ENV PLAYERS_DB_PATH=/data/players.db
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY bot.py database.py .
+COPY bot.py database.py seed_list.py .
 
 RUN mkdir -p /data
 

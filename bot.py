@@ -142,6 +142,20 @@ def _embed_ok(message: str) -> discord.Embed:
 # Taille max du contenu entre ```…``` (la description d’embed inclut aussi titre + en-têtes, reste < 4096).
 _LIST_EMBED_PART_MAX = 3000
 
+# Bloc ANSI : gris (90) + atténué (2) — le texte ne change pas de point, mais paraît plus fin.
+_ANSI_LIST_STYLE = "\x1b[2m\x1b[90m"
+_ANSI_LIST_RESET = "\x1b[0m"
+
+
+def _sanitize_list_for_ansi(raw: str) -> str:
+    """Empêche les séquences d’échappement dans les données de casser le rendu ANSI."""
+    return raw.replace("\x1b", "").replace("\u001b", "")
+
+
+def _list_codeblock_compact(part: str) -> str:
+    safe = _sanitize_list_for_ansi(part)
+    return f"```ansi\n{_ANSI_LIST_STYLE}{safe}{_ANSI_LIST_RESET}\n```"
+
 # Discord ne permet pas d’afficher une police plus « petite » : on compacte chaque entrée sur une ligne
 # (troncature avec …) pour limiter les retours à la ligne automatiques du client.
 _LIST_LINE_HARD_MAX = 132
@@ -248,13 +262,17 @@ async def _followup_send_branded_list(
         sub = ""
         if total > 1:
             sub = f"\n`▰▰▰` **{index}** / **{total}** `▰▰▰`\n"
-        body = f"**{list_heading}**{sub}\n```\n{part}\n```"
+
+        def _build_desc(p: str) -> str:
+            return f"**{list_heading}**{sub}\n{_list_codeblock_compact(p)}"
+
+        body = _build_desc(part)
         while len(body) > 4090 and "\n" in part:
             part = part.rsplit("\n", 1)[0]
-            body = f"**{list_heading}**{sub}\n```\n{part}\n```"
+            body = _build_desc(part)
         if len(body) > 4090:
-            part = _list_one_line(part.replace("\n", " "), 3600)
-            body = f"**{list_heading}**{sub}\n```\n{part}\n```"
+            part = _list_one_line(part.replace("\n", " "), 3500)
+            body = _build_desc(part)
         e = discord.Embed(
             title=f"{emoji} **{_BRAND}**",
             description=body,

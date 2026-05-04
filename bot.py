@@ -152,7 +152,7 @@ _LIST_EMBED_PART_MAX = 3000
 
 # Discord ne permet pas d’afficher une police plus « petite » : on compacte chaque entrée sur une ligne
 # (troncature avec …) pour limiter les retours à la ligne automatiques du client.
-_LIST_LINE_HARD_MAX = 96
+_LIST_LINE_HARD_MAX = 132
 
 
 def _list_one_line(s: str, max_chars: int) -> str:
@@ -166,17 +166,17 @@ def _list_one_line(s: str, max_chars: int) -> str:
 
 def _fmt_list_line_affi(p: Player, gid_display: str) -> str:
     line = (
-        f"{_list_one_line(p.discord_username, 26)} · "
-        f"{_list_one_line(p.gamdom_username, 18)} · "
-        f"{_list_one_line(gid_display, 14)} · "
-        f"{_list_one_line(str(p.kyc_level), 8)}"
+        f"{_list_one_line(p.discord_username, 34)} · "
+        f"{_list_one_line(p.gamdom_username, 24)} · "
+        f"{_list_one_line(gid_display, 18)} · "
+        f"{_list_one_line(str(p.kyc_level), 10)}"
     )
     return _list_one_line(line, _LIST_LINE_HARD_MAX)
 
 
 def _fmt_list_line_point(p: PointEntry) -> str:
     line = (
-        f"{_list_one_line(p.display_name, 28)} · "
+        f"{_list_one_line(p.display_name, 36)} · "
         f"+{p.points_rajouter} · "
         f"{p.total}"
     )
@@ -184,9 +184,9 @@ def _fmt_list_line_point(p: PointEntry) -> str:
 
 
 def _fmt_list_line_rank(r: RankEntry) -> str:
-    tier = _list_one_line(tier_label(r.tier), 18)
+    tier = _list_one_line(tier_label(r.tier), 22)
     line = (
-        f"{_list_one_line(r.display_name, 26)} · "
+        f"{_list_one_line(r.display_name, 34)} · "
         f"{tier} · "
         f"{r.montant_eur}€"
     )
@@ -289,26 +289,27 @@ def _render_list_png(
     heading: str,
     rgb: Tuple[int, int, int],
 ) -> BytesIO:
-    W = 960
-    pad = 12
+    # Largeur / tailles de police : lisibilité sur mobile & bureau (cliquer pour zoom sur Discord)
+    W = 1280
+    pad = 16
     bg = (10, 14, 20)
     gold = (249, 200, 14)
-    font = _load_list_font(9)
-    font_head = _load_list_font(11)
-    img = Image.new("RGB", (W, 3400), bg)
+    font = _load_list_font(14)
+    font_head = _load_list_font(20)
+    img = Image.new("RGB", (W, 4800), bg)
     draw = ImageDraw.Draw(img)
     bbox = draw.textbbox((0, 0), "Hg", font=font)
-    line_h = bbox[3] - bbox[1] + 3
+    line_h = bbox[3] - bbox[1] + 5
     y = pad
     draw.text((pad, y), heading, fill=gold, font=font_head)
-    y += line_h + 6
+    y += line_h + 12
     max_txt = float(W - 2 * pad)
     for row in lines:
         fitted = _fit_line_pixels(draw, row, font, max_txt)
         draw.text((pad, y), fitted, fill=rgb, font=font)
         y += line_h
     y += pad
-    img = img.crop((0, 0, W, min(y, 3400)))
+    img = img.crop((0, 0, W, min(y, 4800)))
     buf = BytesIO()
     img.save(buf, format="PNG", optimize=True)
     buf.seek(0)
@@ -326,8 +327,7 @@ async def _followup_send_branded_list(
     empty_msg: str,
 ) -> None:
     """
-    Listes 19ENPLEIN : préférence pour une image PNG (police 9px) = lecture compacte,
-    car Discord ne permet pas de réduire la taille du texte dans l’embed.
+    Listes 19ENPLEIN : image PNG (gros caractères) car le texte du chat ne peut pas être redimensionné.
     """
     has_logo = _LOGO_PATH.is_file()
     fn = _LOGO_PATH.name
@@ -401,7 +401,7 @@ async def _followup_send_branded_list(
                         sub = f"\n`▰▰▰` **{idx}** / **{nbat}** `▰▰▰`\n"
                     desc = (
                         f"**{list_heading}**{sub}\n"
-                        "*Liste en image (police réduite) — clique pour agrandir.*"
+                        "*Liste en image — texte agrandi pour la lecture (clique sur l’image pour zoomer).*"
                     )
                     e = discord.Embed(
                         title=f"{emoji} **{_BRAND}**",

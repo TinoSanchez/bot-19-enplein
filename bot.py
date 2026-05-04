@@ -8,6 +8,7 @@ import asyncio
 import os
 import sqlite3
 import sys
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -19,6 +20,13 @@ from dotenv import load_dotenv
 from database import Player, PlayerDB, PointDB, PointEntry, RankDB, RankEntry
 from point_seed_list import normalize_point_key
 from rank_seed_list import tier_label
+
+try:
+    from PIL import Image, ImageDraw, ImageFont
+
+    _HAS_PIL = True
+except ImportError:
+    _HAS_PIL = False
 
 load_dotenv()
 
@@ -139,8 +147,51 @@ def _embed_ok(message: str) -> discord.Embed:
     )
 
 
-# Taille des blocs ``` dans la description d’embed (max Discord ≈ 4096 pour toute la description).
-_LIST_EMBED_BODY_CHUNK = 2800
+# Taille max du contenu entre ```…``` (la description d’embed inclut aussi titre + en-têtes, reste < 4096).
+_LIST_EMBED_PART_MAX = 3000
+
+# Discord ne permet pas d’afficher une police plus « petite » : on compacte chaque entrée sur une ligne
+# (troncature avec …) pour limiter les retours à la ligne automatiques du client.
+_LIST_LINE_HARD_MAX = 96
+
+
+def _list_one_line(s: str, max_chars: int) -> str:
+    s = (s or "").replace("\n", " ").replace("\r", "").strip()
+    if len(s) <= max_chars:
+        return s
+    if max_chars <= 1:
+        return "…"
+    return s[: max_chars - 1] + "…"
+
+
+def _fmt_list_line_affi(p: Player, gid_display: str) -> str:
+    line = (
+        f"{_list_one_line(p.discord_username, 26)} · "
+        f"{_list_one_line(p.gamdom_username, 18)} · "
+        f"{_list_one_line(gid_display, 14)} · "
+        f"{_list_one_line(str(p.kyc_level), 8)}"
+    )
+    return _list_one_line(line, _LIST_LINE_HARD_MAX)
+
+
+def _fmt_list_line_point(p: PointEntry) -> str:
+    line = (
+        f"{_list_one_line(p.display_name, 28)} · "
+        f"+{p.points_rajouter} · "
+        f"{p.total}"
+    )
+    return _list_one_line(line, _LIST_LINE_HARD_MAX)
+
+
+def _fmt_list_line_rank(r: RankEntry) -> str:
+    tier = _list_one_line(tier_label(r.tier), 18)
+    line = (
+        f"{_list_one_line(r.display_name, 26)} · "
+        f"{tier} · "
+        f"{r.montant_eur}€"
+    )
+    return _list_one_line(line, _LIST_LINE_HARD_MAX)
+
 
 _RANK_CHOICES = [
     app_commands.Choice(name="— Aucun", value="none"),
@@ -151,11 +202,117 @@ _RANK_CHOICES = [
 ]
 
 
-def _split_list_body(s: str, chunk: int = _LIST_EMBED_BODY_CHUNK) -> List[str]:
+def _split_list_body(s: str, max_part: int = _LIST_EMBED_PART_MAX) -> List[str]:
+    """
+    Découpe en plusieurs messages sans jamais tronquer au milieu d’une ligne
+    (sinon un pseudo comme « Bastien » peut être coupé entre deux embeds).
+    """
     s = s.strip()
     if not s:
         return []
-    return [s[i : i + chunk] for i in range(0, len(s), chunk)]
+    lines = s.split("\n")
+    chunks: List[str] = []
+    buf: List[str] = []
+    buf_len = 0
+    for line in lines:
+        add = len(line) if not buf else 1 + len(line)
+        if buf and buf_len + add > max_part:
+            chunks.append("\n".join(buf))
+            buf = [line]
+            buf_len = len(line)
+        else:
+            if not buf:
+                buf = [line]
+                buf_len = len(line)
+            else:
+                buf.append(line)
+                buf_len += add
+    if buf:
+        chunks.append("\n".join(buf))
+    return chunks
+
+
+_LIST_PNG_MAX_ROWS = 95
+
+
+def _accent_rgb(accent: int) -> Tuple[int, int, int]:
+    return ((accent >> 16) & 255, (accent >> 8) & 255, accent & 255)
+
+
+def _split_lines_for_png(lines: List[str], max_rows: int = _LIST_PNG_MAX_ROWS) -> List[List[str]]:
+    if not lines:
+        return []
+    return [lines[i : i + max_rows] for i in range(0, len(lines), max_rows)]
+
+
+def _load_list_font(size: int) -> Any:
+    """Police monospace petite ; Discord ne permet pas de réduire le texte du chat, d’où le rendu image."""
+    paths = [
+        ROOT / "assets" / "DejaVuSansMono.ttf",
+        Path("C:/Windows/Fonts/consola.ttf"),
+        Path("C:/Windows/Fonts/cour.ttf"),
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"),
+        Path("/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf"),
+    ]
+    for p in paths:
+        if p.is_file():
+            try:
+                return ImageFont.truetype(str(p), size)
+            except OSError:
+                continue
+    return ImageFont.load_default()
+
+
+def _fit_line_pixels(draw: Any, text: str, font: Any, max_px: float) -> str:
+    def text_len(t: str) -> float:
+        if hasattr(draw, "textlength"):
+            return float(draw.textlength(t, font=font))
+        b = draw.textbbox((0, 0), t, font=font)
+        return float(b[2] - b[0])
+
+    if text_len(text) <= max_px:
+        return text
+    ell = "…"
+    lo, hi = 0, len(text)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        cand = text[:mid] + ell
+        if text_len(cand) <= max_px:
+            lo = mid
+        else:
+            hi = mid - 1
+    return text[:lo] + ell if lo > 0 else ell
+
+
+def _render_list_png(
+    lines: List[str],
+    heading: str,
+    rgb: Tuple[int, int, int],
+) -> BytesIO:
+    W = 960
+    pad = 12
+    bg = (10, 14, 20)
+    gold = (249, 200, 14)
+    font = _load_list_font(9)
+    font_head = _load_list_font(11)
+    img = Image.new("RGB", (W, 3400), bg)
+    draw = ImageDraw.Draw(img)
+    bbox = draw.textbbox((0, 0), "Hg", font=font)
+    line_h = bbox[3] - bbox[1] + 3
+    y = pad
+    draw.text((pad, y), heading, fill=gold, font=font_head)
+    y += line_h + 6
+    max_txt = float(W - 2 * pad)
+    for row in lines:
+        fitted = _fit_line_pixels(draw, row, font, max_txt)
+        draw.text((pad, y), fitted, fill=rgb, font=font)
+        y += line_h
+    y += pad
+    img = img.crop((0, 0, W, min(y, 3400)))
+    buf = BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    buf.seek(0)
+    return buf
 
 
 async def _followup_send_branded_list(
@@ -169,24 +326,28 @@ async def _followup_send_branded_list(
     empty_msg: str,
 ) -> None:
     """
-    Listes thématiques 19ENPLEIN : embed + bannière (pièce jointe) sur le 1er message si le logo est présent.
+    Listes 19ENPLEIN : préférence pour une image PNG (police 9px) = lecture compacte,
+    car Discord ne permet pas de réduire la taille du texte dans l’embed.
     """
     has_logo = _LOGO_PATH.is_file()
     fn = _LOGO_PATH.name
 
-    def _one_embed(
+    def _one_embed_text(
         part: str,
         *,
         index: int,
         total: int,
-        with_image: bool,
+        with_logo_banner: bool,
     ) -> discord.Embed:
         sub = ""
         if total > 1:
             sub = f"\n`▰▰▰` **{index}** / **{total}** `▰▰▰`\n"
         body = f"**{list_heading}**{sub}\n```\n{part}\n```"
+        while len(body) > 4090 and "\n" in part:
+            part = part.rsplit("\n", 1)[0]
+            body = f"**{list_heading}**{sub}\n```\n{part}\n```"
         if len(body) > 4090:
-            part = part[: max(500, _LIST_EMBED_BODY_CHUNK - 500)]
+            part = _list_one_line(part.replace("\n", " "), 3600)
             body = f"**{list_heading}**{sub}\n```\n{part}\n```"
         e = discord.Embed(
             title=f"{emoji} **{_BRAND}**",
@@ -198,7 +359,7 @@ async def _followup_send_branded_list(
         if total > 1:
             foot += f" · {index}/{total}"
         e.set_footer(text=foot)
-        if with_image and has_logo:
+        if with_logo_banner and has_logo:
             e.set_image(url=f"attachment://{fn}")
         return e
 
@@ -221,15 +382,63 @@ async def _followup_send_branded_list(
                 await interaction.followup.send(embed=e)
             return
 
+        line_list = text.strip().split("\n")
+
+        if _HAS_PIL:
+            try:
+                batches = _split_lines_for_png(line_list)
+                nbat = len(batches)
+                rgb = _accent_rgb(accent)
+                for i, batch in enumerate(batches):
+                    idx = i + 1
+                    head_p = (
+                        list_heading if nbat == 1 else f"{list_heading}  ·  {idx}/{nbat}"
+                    )
+                    png_buf = _render_list_png(batch, head_p, rgb)
+                    fname = "liste.png" if nbat == 1 else f"liste_{idx}.png"
+                    sub = ""
+                    if nbat > 1:
+                        sub = f"\n`▰▰▰` **{idx}** / **{nbat}** `▰▰▰`\n"
+                    desc = (
+                        f"**{list_heading}**{sub}\n"
+                        "*Liste en image (police réduite) — clique pour agrandir.*"
+                    )
+                    e = discord.Embed(
+                        title=f"{emoji} **{_BRAND}**",
+                        description=desc,
+                        color=accent,
+                        timestamp=discord.utils.utcnow(),
+                    )
+                    foot = f"🔥 {_BRAND} · {footer_hint}"
+                    if nbat > 1:
+                        foot += f" · {idx}/{nbat}"
+                    e.set_footer(text=foot)
+                    e.set_image(url=f"attachment://{fname}")
+                    list_f = discord.File(png_buf, filename=fname)
+                    if i == 0 and has_logo:
+                        e.set_thumbnail(url=f"attachment://{fn}")
+                        await interaction.followup.send(
+                            embed=e,
+                            files=[
+                                discord.File(_LOGO_PATH, filename=fn),
+                                list_f,
+                            ],
+                        )
+                    else:
+                        await interaction.followup.send(embed=e, files=[list_f])
+                return
+            except Exception:
+                pass
+
         parts = _split_list_body(text)
         n = len(parts)
         for i, part in enumerate(parts):
             idx = i + 1
-            e = _one_embed(
+            e = _one_embed_text(
                 part,
                 index=idx,
                 total=n,
-                with_image=(i == 0),
+                with_logo_banner=(i == 0),
             )
             if i == 0 and has_logo:
                 await interaction.followup.send(
@@ -408,10 +617,7 @@ class AffiCog(commands.Cog):
             g = (p.gamdom_id or "").strip()
             return g if g and g != "0" else "—"
 
-        lines = [
-            f"**{p.discord_username}** — Gamdom: `{p.gamdom_username}` — ID Gamdom: `{_id_gamdom_aff(p)}` — KYC: `{p.kyc_level}`"
-            for p in players
-        ]
+        lines = [_fmt_list_line_affi(p, _id_gamdom_aff(p)) for p in players]
         text = "\n".join(lines)
         await _followup_send_branded_list(
             interaction,
@@ -563,10 +769,7 @@ class PointCog(commands.Cog):
         if not rows:
             await interaction.followup.send("La liste est vide.")
             return
-        lines = [
-            f"**{p.display_name}** — +{p.points_rajouter} pts (réf.) — **total: {p.total}**"
-            for p in rows
-        ]
+        lines = [_fmt_list_line_point(p) for p in rows]
         text = "\n".join(lines)
         await _followup_send_branded_list(
             interaction,
@@ -757,10 +960,7 @@ class RankCog(commands.Cog):
         if not rows:
             await interaction.followup.send("La liste est vide.")
             return
-        lines = [
-            f"**{r.display_name}** — {tier_label(r.tier)} — **{r.montant_eur} €**"
-            for r in rows
-        ]
+        lines = [_fmt_list_line_rank(r) for r in rows]
         text = "\n".join(lines)
         await _followup_send_branded_list(
             interaction,

@@ -187,26 +187,20 @@ class AffiCog(commands.Cog):
 
     @affi.command(name="liste", description="Lister tous les affiliés enregistrés")
     async def affi_liste(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
         players = db.list_all()
         if not players:
-            await interaction.response.send_message("La liste est vide.")
+            await interaction.followup.send("La liste est vide.")
             return
         lines = [
             f"**{p.discord_username}** — Gamdom: `{p.gamdom_username}` — KYC: `{p.kyc_level}` — ID Discord: `{p.discord_id}`"
             for p in players
         ]
         text = "\n".join(lines)
-        if len(text) <= 3900:
-            await interaction.response.send_message(text)
-            return
-        await interaction.response.defer()
-        chunk_size = 3800
+        chunk_size = 3900
         for i in range(0, len(text), chunk_size):
             chunk = text[i : i + chunk_size]
-            if i == 0:
-                await interaction.followup.send(chunk)
-            else:
-                await interaction.followup.send(chunk)
+            await interaction.followup.send(chunk)
 
 
 def _point_embed(p: PointEntry) -> discord.Embed:
@@ -331,26 +325,20 @@ class PointCog(commands.Cog):
 
     @point.command(name="liste", description="Lister tous les joueurs et leurs points")
     async def point_liste(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
         rows = point_db.list_all()
         if not rows:
-            await interaction.response.send_message("La liste est vide.")
+            await interaction.followup.send("La liste est vide.")
             return
         lines = [
             f"**{p.display_name}** — +{p.points_rajouter} pts (réf.) — **total: {p.total}** — `{p.player_key}`"
             for p in rows
         ]
         text = "\n".join(lines)
-        if len(text) <= 3900:
-            await interaction.response.send_message(text)
-            return
-        await interaction.response.defer()
-        chunk_size = 3800
+        chunk_size = 3900
         for i in range(0, len(text), chunk_size):
             chunk = text[i : i + chunk_size]
-            if i == 0:
-                await interaction.followup.send(chunk)
-            else:
-                await interaction.followup.send(chunk)
+            await interaction.followup.send(chunk)
 
 
 def _rank_embed(r: RankEntry) -> discord.Embed:
@@ -470,26 +458,20 @@ class RankCog(commands.Cog):
 
     @rank.command(name="liste", description="Lister tous les rangs")
     async def rank_liste(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
         rows = rank_db.list_all()
         if not rows:
-            await interaction.response.send_message("La liste est vide.")
+            await interaction.followup.send("La liste est vide.")
             return
         lines = [
             f"**{r.display_name}** — {tier_label(r.tier)} — `{r.player_key}`"
             for r in rows
         ]
         text = "\n".join(lines)
-        if len(text) <= 3900:
-            await interaction.response.send_message(text)
-            return
-        await interaction.response.defer()
-        chunk_size = 3800
+        chunk_size = 3900
         for i in range(0, len(text), chunk_size):
             chunk = text[i : i + chunk_size]
-            if i == 0:
-                await interaction.followup.send(chunk)
-            else:
-                await interaction.followup.send(chunk)
+            await interaction.followup.send(chunk)
 
 
 class Bot19(commands.Bot):

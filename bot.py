@@ -42,6 +42,9 @@ point_db.seed_points_if_empty()
 rank_db = RankDB(DB_PATH)
 rank_db.seed_ranks_if_empty()
 
+# Limite Discord pour le contenu d’un message texte (pas 3900).
+_DISCORD_TEXT_LIMIT = 2000
+
 _RANK_CHOICES = [
     app_commands.Choice(name="— Aucun", value="none"),
     app_commands.Choice(name="Bronze 15€", value="bronze"),
@@ -49,6 +52,29 @@ _RANK_CHOICES = [
     app_commands.Choice(name="Gold 50€", value="gold"),
     app_commands.Choice(name="Emeraude 100€", value="emeraude"),
 ]
+
+
+async def _defer_send_list_text(
+    interaction: discord.Interaction,
+    text: str,
+    empty_msg: str,
+) -> None:
+    """Après defer(), envoie le texte en morceaux respectant la limite Discord."""
+    await interaction.response.defer()
+    try:
+        if not text.strip():
+            await interaction.followup.send(empty_msg)
+            return
+        for i in range(0, len(text), _DISCORD_TEXT_LIMIT):
+            chunk = text[i : i + _DISCORD_TEXT_LIMIT]
+            await interaction.followup.send(chunk)
+    except Exception as e:
+        try:
+            await interaction.followup.send(
+                f"Erreur lors de l’envoi : `{e}`", ephemeral=True
+            )
+        except Exception:
+            pass
 
 
 def _player_embed(p: Player) -> discord.Embed:
@@ -187,9 +213,9 @@ class AffiCog(commands.Cog):
 
     @affi.command(name="liste", description="Lister tous les affiliés enregistrés")
     async def affi_liste(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer()
         players = db.list_all()
         if not players:
+            await interaction.response.defer()
             await interaction.followup.send("La liste est vide.")
             return
         lines = [
@@ -197,10 +223,7 @@ class AffiCog(commands.Cog):
             for p in players
         ]
         text = "\n".join(lines)
-        chunk_size = 3900
-        for i in range(0, len(text), chunk_size):
-            chunk = text[i : i + chunk_size]
-            await interaction.followup.send(chunk)
+        await _defer_send_list_text(interaction, text, "La liste est vide.")
 
 
 def _point_embed(p: PointEntry) -> discord.Embed:
@@ -325,9 +348,9 @@ class PointCog(commands.Cog):
 
     @point.command(name="liste", description="Lister tous les joueurs et leurs points")
     async def point_liste(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer()
         rows = point_db.list_all()
         if not rows:
+            await interaction.response.defer()
             await interaction.followup.send("La liste est vide.")
             return
         lines = [
@@ -335,10 +358,7 @@ class PointCog(commands.Cog):
             for p in rows
         ]
         text = "\n".join(lines)
-        chunk_size = 3900
-        for i in range(0, len(text), chunk_size):
-            chunk = text[i : i + chunk_size]
-            await interaction.followup.send(chunk)
+        await _defer_send_list_text(interaction, text, "La liste est vide.")
 
 
 def _rank_embed(r: RankEntry) -> discord.Embed:
@@ -458,9 +478,9 @@ class RankCog(commands.Cog):
 
     @rank.command(name="liste", description="Lister tous les rangs")
     async def rank_liste(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer()
         rows = rank_db.list_all()
         if not rows:
+            await interaction.response.defer()
             await interaction.followup.send("La liste est vide.")
             return
         lines = [
@@ -468,10 +488,7 @@ class RankCog(commands.Cog):
             for r in rows
         ]
         text = "\n".join(lines)
-        chunk_size = 3900
-        for i in range(0, len(text), chunk_size):
-            chunk = text[i : i + chunk_size]
-            await interaction.followup.send(chunk)
+        await _defer_send_list_text(interaction, text, "La liste est vide.")
 
 
 class Bot19(commands.Bot):

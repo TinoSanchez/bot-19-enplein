@@ -8,7 +8,6 @@ import asyncio
 import os
 import sqlite3
 import sys
-from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -20,13 +19,6 @@ from dotenv import load_dotenv
 from database import Player, PlayerDB, PointDB, PointEntry, RankDB, RankEntry
 from point_seed_list import normalize_point_key
 from rank_seed_list import tier_label
-
-try:
-    from PIL import Image, ImageDraw, ImageFont
-
-    _HAS_PIL = True
-except ImportError:
-    _HAS_PIL = False
 
 load_dotenv()
 
@@ -232,90 +224,6 @@ def _split_list_body(s: str, max_part: int = _LIST_EMBED_PART_MAX) -> List[str]:
     return chunks
 
 
-_LIST_PNG_MAX_ROWS = 95
-
-
-def _accent_rgb(accent: int) -> Tuple[int, int, int]:
-    return ((accent >> 16) & 255, (accent >> 8) & 255, accent & 255)
-
-
-def _split_lines_for_png(lines: List[str], max_rows: int = _LIST_PNG_MAX_ROWS) -> List[List[str]]:
-    if not lines:
-        return []
-    return [lines[i : i + max_rows] for i in range(0, len(lines), max_rows)]
-
-
-def _load_list_font(size: int) -> Any:
-    """Police monospace petite ; Discord ne permet pas de réduire le texte du chat, d’où le rendu image."""
-    paths = [
-        ROOT / "assets" / "DejaVuSansMono.ttf",
-        Path("C:/Windows/Fonts/consola.ttf"),
-        Path("C:/Windows/Fonts/cour.ttf"),
-        Path("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"),
-        Path("/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf"),
-    ]
-    for p in paths:
-        if p.is_file():
-            try:
-                return ImageFont.truetype(str(p), size)
-            except OSError:
-                continue
-    return ImageFont.load_default()
-
-
-def _fit_line_pixels(draw: Any, text: str, font: Any, max_px: float) -> str:
-    def text_len(t: str) -> float:
-        if hasattr(draw, "textlength"):
-            return float(draw.textlength(t, font=font))
-        b = draw.textbbox((0, 0), t, font=font)
-        return float(b[2] - b[0])
-
-    if text_len(text) <= max_px:
-        return text
-    ell = "…"
-    lo, hi = 0, len(text)
-    while lo < hi:
-        mid = (lo + hi + 1) // 2
-        cand = text[:mid] + ell
-        if text_len(cand) <= max_px:
-            lo = mid
-        else:
-            hi = mid - 1
-    return text[:lo] + ell if lo > 0 else ell
-
-
-def _render_list_png(
-    lines: List[str],
-    heading: str,
-    rgb: Tuple[int, int, int],
-) -> BytesIO:
-    # Rendu ×3 (par rapport à la base lisible 14px / 1280px de large) — PNG très lourde si la liste est longue.
-    W = 3840
-    pad = 48
-    bg = (10, 14, 20)
-    gold = (249, 200, 14)
-    font = _load_list_font(42)
-    font_head = _load_list_font(60)
-    img = Image.new("RGB", (W, 18000), bg)
-    draw = ImageDraw.Draw(img)
-    bbox = draw.textbbox((0, 0), "Hg", font=font)
-    line_h = bbox[3] - bbox[1] + 15
-    y = pad
-    draw.text((pad, y), heading, fill=gold, font=font_head)
-    y += line_h + 36
-    max_txt = float(W - 2 * pad)
-    for row in lines:
-        fitted = _fit_line_pixels(draw, row, font, max_txt)
-        draw.text((pad, y), fitted, fill=rgb, font=font)
-        y += line_h
-    y += pad
-    img = img.crop((0, 0, W, min(y, 18000)))
-    buf = BytesIO()
-    img.save(buf, format="PNG", optimize=True)
-    buf.seek(0)
-    return buf
-
-
 async def _followup_send_branded_list(
     interaction: discord.Interaction,
     *,
@@ -326,9 +234,7 @@ async def _followup_send_branded_list(
     text: str,
     empty_msg: str,
 ) -> None:
-    """
-    Listes 19ENPLEIN : image PNG (gros caractères) car le texte du chat ne peut pas être redimensionné.
-    """
+    """Listes 19ENPLEIN : texte dans l’embed (bloc monospace), logo optionnel sur le 1er message."""
     has_logo = _LOGO_PATH.is_file()
     fn = _LOGO_PATH.name
 
@@ -381,54 +287,6 @@ async def _followup_send_branded_list(
             else:
                 await interaction.followup.send(embed=e)
             return
-
-        line_list = text.strip().split("\n")
-
-        if _HAS_PIL:
-            try:
-                batches = _split_lines_for_png(line_list)
-                nbat = len(batches)
-                rgb = _accent_rgb(accent)
-                for i, batch in enumerate(batches):
-                    idx = i + 1
-                    head_p = (
-                        list_heading if nbat == 1 else f"{list_heading}  ·  {idx}/{nbat}"
-                    )
-                    png_buf = _render_list_png(batch, head_p, rgb)
-                    fname = "liste.png" if nbat == 1 else f"liste_{idx}.png"
-                    sub = ""
-                    if nbat > 1:
-                        sub = f"\n`▰▰▰` **{idx}** / **{nbat}** `▰▰▰`\n"
-                    desc = (
-                        f"**{list_heading}**{sub}\n"
-                        "*Liste en image — texte agrandi pour la lecture (clique sur l’image pour zoomer).*"
-                    )
-                    e = discord.Embed(
-                        title=f"{emoji} **{_BRAND}**",
-                        description=desc,
-                        color=accent,
-                        timestamp=discord.utils.utcnow(),
-                    )
-                    foot = f"🔥 {_BRAND} · {footer_hint}"
-                    if nbat > 1:
-                        foot += f" · {idx}/{nbat}"
-                    e.set_footer(text=foot)
-                    e.set_image(url=f"attachment://{fname}")
-                    list_f = discord.File(png_buf, filename=fname)
-                    if i == 0 and has_logo:
-                        e.set_thumbnail(url=f"attachment://{fn}")
-                        await interaction.followup.send(
-                            embed=e,
-                            files=[
-                                discord.File(_LOGO_PATH, filename=fn),
-                                list_f,
-                            ],
-                        )
-                    else:
-                        await interaction.followup.send(embed=e, files=[list_f])
-                return
-            except Exception:
-                pass
 
         parts = _split_list_body(text)
         n = len(parts)

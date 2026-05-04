@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 
 from database import Player, PlayerDB, PointDB, PointEntry, RankDB, RankEntry
 from point_seed_list import normalize_point_key
-from rank_seed_list import tier_label
+from rank_seed_list import tier_name_only
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -165,6 +165,9 @@ _LIST_PNG_MAX_HEIGHT = 120_000
 _LIST_PNG_BG = (10, 14, 20)
 _LIST_PNG_TEXT = (230, 235, 245)
 _LIST_PNG_HEAD = (249, 200, 14)
+# Liste /rank : colonnes Joueur + Rang (PNG)
+_LIST_PNG_RANK_TIER = (249, 200, 14)
+_LIST_PNG_RANK_EUR = (130, 230, 255)
 
 
 def _list_codeblock_plain(part: str) -> str:
@@ -197,19 +200,14 @@ def _fmt_list_line_affi(p: Player, gid_display: str) -> str:
 def _fmt_list_line_point(p: PointEntry) -> str:
     line = (
         f"{_list_one_line(p.display_name, 36)} · "
-        f"+{p.points_rajouter} · "
-        f"{p.total}"
+        f"+{p.points_rajouter}"
     )
     return _list_one_line(line, _LIST_LINE_HARD_MAX)
 
 
 def _fmt_list_line_rank(r: RankEntry) -> str:
-    tier = _list_one_line(tier_label(r.tier), 22)
-    line = (
-        f"{_list_one_line(r.display_name, 34)} · "
-        f"{tier} · "
-        f"{r.montant_eur}€"
-    )
+    tier = _list_one_line(tier_name_only(r.tier), 22)
+    line = f"{_list_one_line(r.display_name, 34)} · {tier}"
     return _list_one_line(line, _LIST_LINE_HARD_MAX)
 
 
@@ -291,9 +289,9 @@ def _png_column_headers_for_heading(heading: str) -> Optional[List[str]]:
     if "affilié" in h:
         return ["Discord", "Plateforme", "Réf.", "KYC"]
     if "point" in h:
-        return ["Joueur", "Pts +", "Total"]
+        return ["Joueur", "Pts +"]
     if "rang" in h:
-        return ["Joueur", "Statut", "Montant €"]
+        return ["Joueur", "Rang"]
     return None
 
 
@@ -375,6 +373,15 @@ def _fit_png_line(draw: Any, text: str, font: Any, max_px: float) -> str:
     return text[:lo] + ell if lo > 0 else ell
 
 
+def _png_fill_rank_column(col_idx: int) -> Tuple[int, int, int]:
+    """Couleur cellule pour liste rang : col 1 = rang, col 2 = euros."""
+    if col_idx == 1:
+        return _LIST_PNG_RANK_TIER
+    if col_idx == 2:
+        return _LIST_PNG_RANK_EUR
+    return _LIST_PNG_TEXT
+
+
 def _render_list_png_small(lines: List[str], heading: str) -> BytesIO:
     """Une seule image ; lignes découpées par « · » → colonnes alignées + en-têtes selon le titre."""
     W = _LIST_PNG_WIDTH
@@ -429,12 +436,19 @@ def _render_list_png_small(lines: List[str], heading: str) -> BytesIO:
         col_gap = float(min(72, max(20, _LIST_PNG_SCALE * 3)))
         col_w = (inner_w - col_gap * (max_cols - 1)) / max_cols
 
+        is_rank_list = "rang" in heading.lower() and max_cols >= 2
+
         if hdr_f:
             for ci in range(max_cols):
                 x = pad + ci * (col_w + col_gap)
                 cell = hdr_f[ci] if ci < len(hdr_f) else ""
                 fitted = _fit_png_line(draw, cell, font, col_w)
-                draw.text((x, y), fitted, fill=_LIST_PNG_HEAD, font=font)
+                hf = _LIST_PNG_HEAD
+                if is_rank_list and ci == 1:
+                    hf = _LIST_PNG_RANK_TIER
+                elif is_rank_list and ci == 2:
+                    hf = _LIST_PNG_RANK_EUR
+                draw.text((x, y), fitted, fill=hf, font=font)
             y += line_h
             rule_y = int(y)
             rule_w = max(1, _LIST_PNG_SCALE // 12)
@@ -453,7 +467,12 @@ def _render_list_png_small(lines: List[str], heading: str) -> BytesIO:
             for ci in range(max_cols):
                 x = pad + ci * (col_w + col_gap)
                 fitted = _fit_png_line(draw, cells[ci], font, col_w)
-                draw.text((x, y), fitted, fill=_LIST_PNG_TEXT, font=font)
+                fill = (
+                    _png_fill_rank_column(ci)
+                    if is_rank_list
+                    else _LIST_PNG_TEXT
+                )
+                draw.text((x, y), fitted, fill=fill, font=font)
             y += line_h
 
     y += pad
@@ -773,7 +792,6 @@ def _point_embed(p: PointEntry) -> discord.Embed:
     rows = [
         ("Joueur", p.display_name),
         ("Points (réf.)", str(p.points_rajouter)),
-        ("Total", str(p.total)),
     ]
     return _embed_branded(
         title="Points stream",
@@ -925,8 +943,7 @@ class PointCog(commands.Cog):
 def _rank_embed(r: RankEntry) -> discord.Embed:
     rows = [
         ("Joueur", r.display_name),
-        ("Statut", tier_label(r.tier)),
-        ("Montant", f"{r.montant_eur} €"),
+        ("Rang", tier_name_only(r.tier)),
     ]
     return _embed_branded(
         title="Rang & statut",

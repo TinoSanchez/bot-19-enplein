@@ -22,6 +22,34 @@ def tier_label(tier: str) -> str:
     return TIER_LABELS.get(tier, tier)
 
 
+# Libellé sans montant (pour listes : colonne « Rang » distincte de « Montant »).
+TIER_NAME_ONLY: Dict[str, str] = {
+    "none": "— Aucun",
+    "bronze": "Bronze",
+    "argent": "Argent",
+    "gold": "Gold",
+    "emeraude": "Emeraude",
+}
+
+
+def tier_name_only(tier: str) -> str:
+    return TIER_NAME_ONLY.get(tier, str(tier))
+
+
+# Montant « canonique » par palier (quand la base a 0 ou pas encore renseigné).
+TIER_DEFAULT_EUR: Dict[str, int] = {
+    "none": 0,
+    "bronze": 15,
+    "argent": 30,
+    "gold": 50,
+    "emeraude": 100,
+}
+
+
+def tier_default_eur(tier: str) -> int:
+    return int(TIER_DEFAULT_EUR.get(tier, 0))
+
+
 # (clé, nom affiché, rang le plus haut atteint selon le tableau)
 RANK_INITIAL: List[Tuple[str, str, str]] = [
     ("gaylord", "Gaylord", "argent"),

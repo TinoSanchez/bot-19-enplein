@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 from point_seed_list import POINT_INITIAL
-from rank_seed_list import RANK_INITIAL, VALID_TIERS
+from rank_seed_list import RANK_INITIAL, VALID_TIERS, tier_default_eur
 from seed_list import INITIAL_ROWS, SYNTH_DISCORD_BASE
 
 
@@ -505,7 +505,7 @@ class RankDB:
                         INSERT INTO rank_players (player_key, display_name, tier, montant_eur)
                         VALUES (?, ?, ?, ?)
                         """,
-                        (key, display, tier, 0),
+                        (key, display, tier, tier_default_eur(tier)),
                     )
                 conn.commit()
             finally:

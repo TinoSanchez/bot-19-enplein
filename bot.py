@@ -18,6 +18,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 from database import Player, PlayerDB, PointDB, PointEntry, RankDB, RankEntry
+from giveaway_cog import GiveawayCog
 from point_seed_list import normalize_point_key
 from rank_seed_list import effective_montant_eur, tier_name_only
 
@@ -1145,6 +1146,7 @@ class Bot19(commands.Bot):
         await self.add_cog(AffiCog(self))
         await self.add_cog(PointCog(self))
         await self.add_cog(RankCog(self))
+        await self.add_cog(GiveawayCog(self, DB_PATH))
         if GUILD_ID:
             await self.tree.sync(guild=discord.Object(id=GUILD_ID))
         else:

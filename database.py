@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Tuple
 
 from point_seed_list import POINT_INITIAL
 from rank_seed_list import RANK_INITIAL, VALID_TIERS, tier_default_eur
@@ -510,3 +511,200 @@ class RankDB:
                 conn.commit()
             finally:
                 conn.close()
+
+
+@dataclass(frozen=True)
+class GiveawayRecord:
+    id: str
+    guild_id: int
+    channel_id: int
+    message_id: int
+    template_key: str
+    amount_eur: int
+    winner_count: int
+    ends_at: float
+    participants: List[int]
+    ended: bool
+
+
+class GiveawayDB:
+    """Giveaways actifs / terminés (boutons persistants par `id`)."""
+
+    def __init__(self, db_path: Path) -> None:
+        self._path = db_path
+        self._lock = threading.Lock()
+        self._ensure_schema()
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self._path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _ensure_schema(self) -> None:
+        with self._lock:
+            conn = self._connect()
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS giveaways (
+                    id TEXT PRIMARY KEY,
+                    guild_id INTEGER NOT NULL,
+                    channel_id INTEGER NOT NULL,
+                    message_id INTEGER NOT NULL,
+                    template_key TEXT NOT NULL,
+                    amount_eur INTEGER NOT NULL,
+                    winner_count INTEGER NOT NULL,
+                    ends_at REAL NOT NULL,
+                    participants TEXT NOT NULL DEFAULT '[]',
+                    ended INTEGER NOT NULL DEFAULT 0
+                )
+                """
+            )
+            conn.commit()
+            conn.close()
+
+    def create(
+        self,
+        gid: str,
+        *,
+        guild_id: int,
+        channel_id: int,
+        message_id: int,
+        template_key: str,
+        amount_eur: int,
+        winner_count: int,
+        ends_at: float,
+    ) -> None:
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO giveaways (
+                        id, guild_id, channel_id, message_id, template_key,
+                        amount_eur, winner_count, ends_at, participants, ended
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', 0)
+                    """,
+                    (
+                        gid,
+                        guild_id,
+                        channel_id,
+                        message_id,
+                        template_key,
+                        amount_eur,
+                        winner_count,
+                        ends_at,
+                    ),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+    def get(self, gid: str) -> Optional[GiveawayRecord]:
+        with self._lock:
+            conn = self._connect()
+            try:
+                row = conn.execute(
+                    """
+                    SELECT id, guild_id, channel_id, message_id, template_key,
+                           amount_eur, winner_count, ends_at, participants, ended
+                    FROM giveaways WHERE id = ?
+                    """,
+                    (gid,),
+                ).fetchone()
+            finally:
+                conn.close()
+        if row is None:
+            return None
+        parts = json.loads(row["participants"] or "[]")
+        pid_list = [int(x) for x in parts]
+        return GiveawayRecord(
+            id=row["id"],
+            guild_id=int(row["guild_id"]),
+            channel_id=int(row["channel_id"]),
+            message_id=int(row["message_id"]),
+            template_key=row["template_key"],
+            amount_eur=int(row["amount_eur"]),
+            winner_count=int(row["winner_count"]),
+            ends_at=float(row["ends_at"]),
+            participants=pid_list,
+            ended=bool(row["ended"]),
+        )
+
+    def add_participant(self, gid: str, user_id: int) -> Tuple[bool, int]:
+        """Ajoute un participant. Retourne (nouveau?, nombre total)."""
+        import time
+
+        with self._lock:
+            conn = self._connect()
+            try:
+                row = conn.execute(
+                    "SELECT participants, ended, ends_at FROM giveaways WHERE id = ?",
+                    (gid,),
+                ).fetchone()
+                if row is None:
+                    return False, 0
+                if row["ended"]:
+                    return False, len(json.loads(row["participants"] or "[]"))
+                if float(row["ends_at"]) <= time.time():
+                    return False, len(json.loads(row["participants"] or "[]"))
+                parts = json.loads(row["participants"] or "[]")
+                uid_str = str(user_id)
+                ids = [str(x) for x in parts]
+                if uid_str in ids:
+                    n = len(ids)
+                    return False, n
+                parts.append(user_id)
+                conn.execute(
+                    "UPDATE giveaways SET participants = ? WHERE id = ?",
+                    (json.dumps(parts), gid),
+                )
+                conn.commit()
+                return True, len(parts)
+            finally:
+                conn.close()
+
+    def mark_ended(self, gid: str) -> bool:
+        with self._lock:
+            conn = self._connect()
+            try:
+                cur = conn.execute(
+                    "UPDATE giveaways SET ended = 1 WHERE id = ? AND ended = 0",
+                    (gid,),
+                )
+                conn.commit()
+                return cur.rowcount > 0
+            finally:
+                conn.close()
+
+    def list_unfinished(self) -> List[GiveawayRecord]:
+        with self._lock:
+            conn = self._connect()
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT id, guild_id, channel_id, message_id, template_key,
+                           amount_eur, winner_count, ends_at, participants, ended
+                    FROM giveaways WHERE ended = 0
+                    """
+                ).fetchall()
+            finally:
+                conn.close()
+        out: List[GiveawayRecord] = []
+        for row in rows:
+            parts = json.loads(row["participants"] or "[]")
+            out.append(
+                GiveawayRecord(
+                    id=row["id"],
+                    guild_id=int(row["guild_id"]),
+                    channel_id=int(row["channel_id"]),
+                    message_id=int(row["message_id"]),
+                    template_key=row["template_key"],
+                    amount_eur=int(row["amount_eur"]),
+                    winner_count=int(row["winner_count"]),
+                    ends_at=float(row["ends_at"]),
+                    participants=[int(x) for x in parts],
+                    ended=bool(row["ended"]),
+                )
+            )
+        return out

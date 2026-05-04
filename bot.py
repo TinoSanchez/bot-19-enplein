@@ -151,15 +151,18 @@ def _embed_ok(message: str) -> discord.Embed:
 _LIST_EMBED_PART_MAX = 3000
 
 # Rendu liste en PNG (LIST_TEXT_ONLY=1 pour rester en texte embed).
-_LIST_PNG_SCALE = 6
+# Facteur demandé : ×6 puis ×4 → ×24 (police/marges vs base 10/13/920px).
+_LIST_PNG_SCALE = 24
+_PNG_MAX_SIDE = 8192  # plafond largeur/hauteur (évite PNG gigantesques / crash mémoire)
 _LIST_PNG_FONT_BODY = 10 * _LIST_PNG_SCALE
 _LIST_PNG_FONT_HEAD = 13 * _LIST_PNG_SCALE
-_LIST_PNG_WIDTH = 920 * _LIST_PNG_SCALE
-_LIST_PNG_PAD = 14 * _LIST_PNG_SCALE
-_LIST_PNG_LINE_EXTRA = 4 * _LIST_PNG_SCALE
-_LIST_PNG_HEAD_GAP = 10 * _LIST_PNG_SCALE
-_LIST_PNG_CANVAS_MAX = 7000 * _LIST_PNG_SCALE
-_LIST_PNG_MAX_ROWS = 100
+_LIST_PNG_WIDTH = min(920 * _LIST_PNG_SCALE, _PNG_MAX_SIDE)
+_LIST_PNG_PAD = min(14 * _LIST_PNG_SCALE, 160)
+_LIST_PNG_LINE_EXTRA = min(4 * _LIST_PNG_SCALE, 48)
+_LIST_PNG_HEAD_GAP = min(10 * _LIST_PNG_SCALE, 120)
+_LIST_PNG_CANVAS_MAX = min(7000 * _LIST_PNG_SCALE, _PNG_MAX_SIDE)
+# Peu de lignes par image à très grande échelle (taille fichier Discord ~8 Mo).
+_LIST_PNG_MAX_ROWS = max(5, min(100, 200 // _LIST_PNG_SCALE))
 _LIST_PNG_BG = (10, 14, 20)
 _LIST_PNG_TEXT = (230, 235, 245)
 _LIST_PNG_HEAD = (249, 200, 14)

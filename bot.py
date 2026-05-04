@@ -219,7 +219,7 @@ class AffiCog(commands.Cog):
             await interaction.followup.send("La liste est vide.")
             return
         lines = [
-            f"**{p.discord_username}** — Gamdom: `{p.gamdom_username}` — KYC: `{p.kyc_level}` — ID Discord: `{p.discord_id}`"
+            f"**{p.discord_username}** — Gamdom: `{p.gamdom_username}` — KYC: `{p.kyc_level}`"
             for p in players
         ]
         text = "\n".join(lines)

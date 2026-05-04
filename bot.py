@@ -142,8 +142,8 @@ def _embed_ok(message: str) -> discord.Embed:
 # Taille max du contenu entre ```…``` (la description d’embed inclut aussi titre + en-têtes, reste < 4096).
 _LIST_EMBED_PART_MAX = 3000
 
-# Bloc ANSI : gris (90) + atténué (2) — le texte ne change pas de point, mais paraît plus fin.
-_ANSI_LIST_STYLE = "\x1b[2m\x1b[90m"
+# ANSI faint + gris 256 (235) : contraste plus bas = rendu visuel plus « petit » (pas de taille de police réelle).
+_ANSI_LIST_STYLE = "\x1b[2m\x1b[38;5;235m"
 _ANSI_LIST_RESET = "\x1b[0m"
 
 

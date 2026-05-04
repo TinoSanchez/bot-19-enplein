@@ -150,10 +150,15 @@ def _embed_ok(message: str) -> discord.Embed:
 # Taille max du contenu entre ```…``` (la description d’embed inclut aussi titre + en-têtes, reste < 4096).
 _LIST_EMBED_PART_MAX = 3000
 
-# Police réelle plus petite : uniquement via image PNG (LIST_TEXT_ONLY=1 pour rester en texte embed).
-_LIST_PNG_FONT_BODY = 10
-_LIST_PNG_FONT_HEAD = 13
-_LIST_PNG_WIDTH = 920
+# Rendu liste en PNG (LIST_TEXT_ONLY=1 pour rester en texte embed).
+_LIST_PNG_SCALE = 6
+_LIST_PNG_FONT_BODY = 10 * _LIST_PNG_SCALE
+_LIST_PNG_FONT_HEAD = 13 * _LIST_PNG_SCALE
+_LIST_PNG_WIDTH = 920 * _LIST_PNG_SCALE
+_LIST_PNG_PAD = 14 * _LIST_PNG_SCALE
+_LIST_PNG_LINE_EXTRA = 4 * _LIST_PNG_SCALE
+_LIST_PNG_HEAD_GAP = 10 * _LIST_PNG_SCALE
+_LIST_PNG_CANVAS_MAX = 7000 * _LIST_PNG_SCALE
 _LIST_PNG_MAX_ROWS = 100
 _LIST_PNG_BG = (10, 14, 20)
 _LIST_PNG_TEXT = (230, 235, 245)
@@ -298,25 +303,25 @@ def _fit_png_line(draw: Any, text: str, font: Any, max_px: float) -> str:
 
 
 def _render_list_png_small(lines: List[str], heading: str) -> BytesIO:
-    """Liste dessinée en petite taille (px), couleurs lisibles (pas d’effet « contraste » seul)."""
+    """Liste en image ; taille pilotée par _LIST_PNG_SCALE (police + marges + toile)."""
     W = _LIST_PNG_WIDTH
-    pad = 14
+    pad = _LIST_PNG_PAD
     font = _load_png_font(_LIST_PNG_FONT_BODY)
     font_h = _load_png_font(_LIST_PNG_FONT_HEAD)
-    img = Image.new("RGB", (W, 7000), _LIST_PNG_BG)
+    img = Image.new("RGB", (W, _LIST_PNG_CANVAS_MAX), _LIST_PNG_BG)
     draw = ImageDraw.Draw(img)
     bbox = draw.textbbox((0, 0), "Hg", font=font)
-    line_h = bbox[3] - bbox[1] + 4
+    line_h = bbox[3] - bbox[1] + _LIST_PNG_LINE_EXTRA
     y = pad
     draw.text((pad, y), heading, fill=_LIST_PNG_HEAD, font=font_h)
-    y += line_h + 10
+    y += line_h + _LIST_PNG_HEAD_GAP
     max_txt = float(W - 2 * pad)
     for row in lines:
         fitted = _fit_png_line(draw, row, font, max_txt)
         draw.text((pad, y), fitted, fill=_LIST_PNG_TEXT, font=font)
         y += line_h
     y += pad
-    img = img.crop((0, 0, W, min(y, 7000)))
+    img = img.crop((0, 0, W, min(y, _LIST_PNG_CANVAS_MAX)))
     buf = BytesIO()
     img.save(buf, format="PNG", optimize=True)
     buf.seek(0)

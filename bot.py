@@ -9,7 +9,7 @@ import os
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import discord
 from discord import app_commands
@@ -30,6 +30,14 @@ ROOT = Path(__file__).resolve().parent
 _db_override = os.getenv("PLAYERS_DB_PATH")
 DB_PATH = Path(_db_override).resolve() if _db_override else ROOT / "players.db"
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+# Logo bannière listes (défaut : `assets/19enplein_logo.png`) — sur Pebble : chemin absolu optionnel
+_env_logo = (os.getenv("BRAND_LOGO_PATH") or "").strip()
+_LOGO_PATH = (
+    Path(_env_logo).expanduser().resolve()
+    if _env_logo
+    else ROOT / "assets" / "19enplein_logo.png"
+)
 
 intents = discord.Intents.default()
 
@@ -71,8 +79,68 @@ def _resolve_rank_key(raw: str) -> Optional[str]:
     return None
 
 
-# Limite Discord pour le contenu d’un message texte (pas 3900).
-_DISCORD_TEXT_LIMIT = 2000
+# ——— Thème visuel 19ENPLEIN CASINO (logo) ———
+_CLR_CYAN = 0x00D4FF
+_CLR_GOLD = 0xF9C80E
+_CLR_NEON = 0x76FF03
+_BRAND = "19ENPLEIN CASINO"
+
+
+def _truncate_cell(s: str, max_len: int) -> str:
+    s = str(s).replace("\n", " ").strip()
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 1] + "…"
+
+
+def _table_two_cols(
+    rows: List[Tuple[str, str]],
+    *,
+    key_w: int = 18,
+    val_w: int = 28,
+) -> str:
+    """Tableau monospace type « casino » (bordures Unicode)."""
+    top = "╔" + "═" * (key_w + 2) + "╦" + "═" * (val_w + 2) + "╗"
+    sep = "╠" + "═" * (key_w + 2) + "╬" + "═" * (val_w + 2) + "╣"
+    bot = "╚" + "═" * (key_w + 2) + "╩" + "═" * (val_w + 2) + "╝"
+    out: List[str] = [top]
+    for i, (k, v) in enumerate(rows):
+        kk = _truncate_cell(k, key_w).ljust(key_w)
+        vv = _truncate_cell(v, val_w).ljust(val_w)
+        out.append(f"║ {kk} ║ {vv} ║")
+        if i < len(rows) - 1:
+            out.append(sep)
+    out.append(bot)
+    return "\n".join(out)
+
+
+def _embed_branded(
+    *,
+    title: str,
+    table_rows: List[Tuple[str, str]],
+    accent: int = _CLR_CYAN,
+    emoji_title: str = "💸",
+    footer_hint: str = "Tableau dynamique",
+) -> discord.Embed:
+    e = discord.Embed(
+        title=f"{emoji_title} **{_BRAND}**",
+        description=f"**{title}**\n```\n{_table_two_cols(table_rows)}\n```",
+        color=accent,
+    )
+    e.set_footer(text=f"🔥 {_BRAND} · {footer_hint}")
+    return e
+
+
+def _embed_ok(message: str) -> discord.Embed:
+    return discord.Embed(
+        title=f"✅ {message}",
+        description=f"*{_BRAND}*",
+        color=_CLR_NEON,
+    )
+
+
+# Taille des blocs ``` dans la description d’embed (max Discord ≈ 4096 pour toute la description).
+_LIST_EMBED_BODY_CHUNK = 2800
 
 _RANK_CHOICES = [
     app_commands.Choice(name="— Aucun", value="none"),
@@ -83,20 +151,93 @@ _RANK_CHOICES = [
 ]
 
 
-async def _defer_send_list_text(
+def _split_list_body(s: str, chunk: int = _LIST_EMBED_BODY_CHUNK) -> List[str]:
+    s = s.strip()
+    if not s:
+        return []
+    return [s[i : i + chunk] for i in range(0, len(s), chunk)]
+
+
+async def _followup_send_branded_list(
     interaction: discord.Interaction,
+    *,
+    list_heading: str,
+    accent: int,
+    emoji: str,
+    footer_hint: str,
     text: str,
     empty_msg: str,
 ) -> None:
-    """Après defer(), envoie le texte en morceaux respectant la limite Discord."""
-    await interaction.response.defer()
+    """
+    Listes thématiques 19ENPLEIN : embed + bannière (pièce jointe) sur le 1er message si le logo est présent.
+    """
+    has_logo = _LOGO_PATH.is_file()
+    fn = _LOGO_PATH.name
+
+    def _one_embed(
+        part: str,
+        *,
+        index: int,
+        total: int,
+        with_image: bool,
+    ) -> discord.Embed:
+        sub = ""
+        if total > 1:
+            sub = f"\n`▰▰▰` **{index}** / **{total}** `▰▰▰`\n"
+        body = f"**{list_heading}**{sub}\n```\n{part}\n```"
+        if len(body) > 4090:
+            part = part[: max(500, _LIST_EMBED_BODY_CHUNK - 500)]
+            body = f"**{list_heading}**{sub}\n```\n{part}\n```"
+        e = discord.Embed(
+            title=f"{emoji} **{_BRAND}**",
+            description=body,
+            color=accent,
+            timestamp=discord.utils.utcnow(),
+        )
+        foot = f"🔥 {_BRAND} · {footer_hint}"
+        if total > 1:
+            foot += f" · {index}/{total}"
+        e.set_footer(text=foot)
+        if with_image and has_logo:
+            e.set_image(url=f"attachment://{fn}")
+        return e
+
     try:
         if not text.strip():
-            await interaction.followup.send(empty_msg)
+            e = discord.Embed(
+                title=f"{emoji} **{_BRAND}**",
+                description=f"**{list_heading}**\n\n✦ *{empty_msg}* ✦",
+                color=accent,
+                timestamp=discord.utils.utcnow(),
+            )
+            e.set_footer(text=f"🔥 {_BRAND} · {footer_hint}")
+            if has_logo:
+                e.set_image(url=f"attachment://{fn}")
+                await interaction.followup.send(
+                    embed=e,
+                    file=discord.File(_LOGO_PATH, filename=fn),
+                )
+            else:
+                await interaction.followup.send(embed=e)
             return
-        for i in range(0, len(text), _DISCORD_TEXT_LIMIT):
-            chunk = text[i : i + _DISCORD_TEXT_LIMIT]
-            await interaction.followup.send(chunk)
+
+        parts = _split_list_body(text)
+        n = len(parts)
+        for i, part in enumerate(parts):
+            idx = i + 1
+            e = _one_embed(
+                part,
+                index=idx,
+                total=n,
+                with_image=(i == 0),
+            )
+            if i == 0 and has_logo:
+                await interaction.followup.send(
+                    embed=e,
+                    file=discord.File(_LOGO_PATH, filename=fn),
+                )
+            else:
+                await interaction.followup.send(embed=e)
     except Exception as e:
         try:
             await interaction.followup.send(
@@ -107,14 +248,22 @@ async def _defer_send_list_text(
 
 
 def _player_embed(p: Player) -> discord.Embed:
-    e = discord.Embed(title="Fiche joueur", color=0x5865F2)
-    e.add_field(name="Pseudo Discord", value=p.discord_username, inline=True)
-    e.add_field(name="ID Discord", value=p.discord_id, inline=True)
-    e.add_field(name="\u200b", value="\u200b", inline=False)
-    e.add_field(name="Pseudo Gamdom", value=p.gamdom_username, inline=True)
-    e.add_field(name="ID Gamdom", value=p.gamdom_id, inline=True)
-    e.add_field(name="Niveau KYC", value=p.kyc_level, inline=True)
-    return e
+    gid = (p.gamdom_id or "").strip()
+    if not gid or gid == "0":
+        gid = "—"
+    rows = [
+        ("Pseudo Discord", p.discord_username),
+        ("ID Discord", p.discord_id),
+        ("Réf. compte", gid),
+        ("Niveau KYC", p.kyc_level or "—"),
+    ]
+    return _embed_branded(
+        title="Fiche affilié",
+        table_rows=rows,
+        accent=_CLR_CYAN,
+        emoji_title="🎰",
+        footer_hint="Affiliation & KYC",
+    )
 
 
 class AffiCog(commands.Cog):
@@ -226,7 +375,9 @@ class AffiCog(commands.Cog):
                 "Aucun joueur avec cet ID Discord.", ephemeral=True
             )
             return
-        await interaction.response.send_message(f"Joueur supprimé (`{id_discord}`).")
+        await interaction.response.send_message(
+            embed=_embed_ok(f"Joueur supprimé · ID `{id_discord}`")
+        )
 
     @affi.command(name="fiche", description="Afficher la fiche d’un affilié")
     @app_commands.describe(id_discord="ID Discord du joueur")
@@ -242,11 +393,17 @@ class AffiCog(commands.Cog):
 
     @affi.command(name="liste", description="Lister tous les affiliés enregistrés")
     async def affi_liste(self, interaction: discord.Interaction) -> None:
-        players = db.list_all()
+        # defer tout de suite : Discord impose ~3 s avant réponse, sinon « application ne répond plus »
+        await interaction.response.defer()
+        try:
+            players = db.list_all()
+        except Exception as e:
+            await interaction.followup.send(f"Erreur base de données : `{e}`", ephemeral=True)
+            return
         if not players:
-            await interaction.response.defer()
             await interaction.followup.send("La liste est vide.")
             return
+
         def _id_gamdom_aff(p: Player) -> str:
             g = (p.gamdom_id or "").strip()
             return g if g and g != "0" else "—"
@@ -256,16 +413,30 @@ class AffiCog(commands.Cog):
             for p in players
         ]
         text = "\n".join(lines)
-        await _defer_send_list_text(interaction, text, "La liste est vide.")
+        await _followup_send_branded_list(
+            interaction,
+            list_heading="Liste des affiliés",
+            accent=_CLR_CYAN,
+            emoji="🎰",
+            footer_hint="Affiliation & KYC",
+            text=text,
+            empty_msg="La liste est vide.",
+        )
 
 
 def _point_embed(p: PointEntry) -> discord.Embed:
-    e = discord.Embed(title="Fiche points", color=0x57F287)
-    e.add_field(name="Joueur", value=p.display_name, inline=True)
-    e.add_field(name="\u200b", value="\u200b", inline=False)
-    e.add_field(name="Points à rajouter", value=str(p.points_rajouter), inline=True)
-    e.add_field(name="Total", value=str(p.total), inline=True)
-    return e
+    rows = [
+        ("Joueur", p.display_name),
+        ("Points (réf.)", str(p.points_rajouter)),
+        ("Total", str(p.total)),
+    ]
+    return _embed_branded(
+        title="Points stream",
+        table_rows=rows,
+        accent=_CLR_NEON,
+        emoji_title="💸",
+        footer_hint="Classement points",
+    )
 
 
 class PointCog(commands.Cog):
@@ -365,7 +536,9 @@ class PointCog(commands.Cog):
                 "Joueur introuvable.", ephemeral=True
             )
             return
-        await interaction.response.send_message(f"Joueur supprimé ({joueur.strip()}).")
+        await interaction.response.send_message(
+            embed=_embed_ok(f"Joueur supprimé · **{joueur.strip()}**")
+        )
 
     @point.command(name="fiche", description="Afficher la fiche points d’un joueur")
     @app_commands.describe(joueur="Pseudo du joueur (ex: gaylord, Picsou)")
@@ -381,9 +554,13 @@ class PointCog(commands.Cog):
 
     @point.command(name="liste", description="Lister tous les joueurs et leurs points")
     async def point_liste(self, interaction: discord.Interaction) -> None:
-        rows = point_db.list_all()
+        await interaction.response.defer()
+        try:
+            rows = point_db.list_all()
+        except Exception as e:
+            await interaction.followup.send(f"Erreur base de données : `{e}`", ephemeral=True)
+            return
         if not rows:
-            await interaction.response.defer()
             await interaction.followup.send("La liste est vide.")
             return
         lines = [
@@ -391,15 +568,30 @@ class PointCog(commands.Cog):
             for p in rows
         ]
         text = "\n".join(lines)
-        await _defer_send_list_text(interaction, text, "La liste est vide.")
+        await _followup_send_branded_list(
+            interaction,
+            list_heading="Liste des points",
+            accent=_CLR_NEON,
+            emoji="💸",
+            footer_hint="Classement points",
+            text=text,
+            empty_msg="La liste est vide.",
+        )
 
 
 def _rank_embed(r: RankEntry) -> discord.Embed:
-    e = discord.Embed(title="Fiche rang", color=0xF1C40F)
-    e.add_field(name="Joueur", value=r.display_name, inline=True)
-    e.add_field(name="Statut", value=tier_label(r.tier), inline=True)
-    e.add_field(name="Montant", value=f"{r.montant_eur} €", inline=True)
-    return e
+    rows = [
+        ("Joueur", r.display_name),
+        ("Statut", tier_label(r.tier)),
+        ("Montant", f"{r.montant_eur} €"),
+    ]
+    return _embed_branded(
+        title="Rang & statut",
+        table_rows=rows,
+        accent=_CLR_GOLD,
+        emoji_title="🏆",
+        footer_hint="Bronze · Argent · Gold · Emeraude",
+    )
 
 
 class RankCog(commands.Cog):
@@ -538,7 +730,9 @@ class RankCog(commands.Cog):
                 "Joueur introuvable.", ephemeral=True
             )
             return
-        await interaction.response.send_message(f"Joueur supprimé ({joueur.strip()}).")
+        await interaction.response.send_message(
+            embed=_embed_ok(f"Joueur supprimé · **{joueur.strip()}**")
+        )
 
     @rank.command(name="fiche", description="Afficher le rang d’un joueur")
     @app_commands.describe(joueur="Pseudo du joueur (ex: Kane, Onizuka)")
@@ -554,9 +748,13 @@ class RankCog(commands.Cog):
 
     @rank.command(name="liste", description="Lister tous les rangs")
     async def rank_liste(self, interaction: discord.Interaction) -> None:
-        rows = rank_db.list_all()
+        await interaction.response.defer()
+        try:
+            rows = rank_db.list_all()
+        except Exception as e:
+            await interaction.followup.send(f"Erreur base de données : `{e}`", ephemeral=True)
+            return
         if not rows:
-            await interaction.response.defer()
             await interaction.followup.send("La liste est vide.")
             return
         lines = [
@@ -564,7 +762,15 @@ class RankCog(commands.Cog):
             for r in rows
         ]
         text = "\n".join(lines)
-        await _defer_send_list_text(interaction, text, "La liste est vide.")
+        await _followup_send_branded_list(
+            interaction,
+            list_heading="Liste des rangs",
+            accent=_CLR_GOLD,
+            emoji="🏆",
+            footer_hint="Bronze · Argent · Gold · Emeraude",
+            text=text,
+            empty_msg="La liste est vide.",
+        )
 
 
 class Bot19(commands.Bot):

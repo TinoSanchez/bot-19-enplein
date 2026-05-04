@@ -277,6 +277,26 @@ def _load_png_font(size: int) -> Any:
     return ImageFont.load_default()
 
 
+_LIST_COL_SEP = " · "
+
+
+def _png_split_row_cells(row: str) -> List[str]:
+    if _LIST_COL_SEP not in row:
+        return [row]
+    return [c.strip() for c in row.split(_LIST_COL_SEP)]
+
+
+def _png_column_headers_for_heading(heading: str) -> Optional[List[str]]:
+    h = heading.lower()
+    if "affilié" in h:
+        return ["Discord", "Plateforme", "Réf.", "KYC"]
+    if "point" in h:
+        return ["Joueur", "Pts +", "Total"]
+    if "rang" in h:
+        return ["Joueur", "Statut", "Montant"]
+    return None
+
+
 def _fit_png_line(draw: Any, text: str, font: Any, max_px: float) -> str:
     def tl(t: str) -> float:
         if hasattr(draw, "textlength"):
@@ -299,7 +319,7 @@ def _fit_png_line(draw: Any, text: str, font: Any, max_px: float) -> str:
 
 
 def _render_list_png_small(lines: List[str], heading: str) -> BytesIO:
-    """Une seule image pour toute la liste ; hauteur calculée (taille = _LIST_PNG_SCALE)."""
+    """Une seule image ; lignes découpées par « · » → colonnes alignées + en-têtes selon le titre."""
     W = _LIST_PNG_WIDTH
     pad = _LIST_PNG_PAD
     font = _load_png_font(_LIST_PNG_FONT_BODY)
@@ -312,23 +332,75 @@ def _render_list_png_small(lines: List[str], heading: str) -> BytesIO:
     hb = td.textbbox((0, 0), heading, font=font_h)
     head_h = hb[3] - hb[1]
 
+    rows_cells = [_png_split_row_cells(r) for r in lines]
+    max_cols = max((len(r) for r in rows_cells), default=1)
+
+    hdr_raw = _png_column_headers_for_heading(heading)
+    hdr_f: Optional[List[str]] = None
+    if hdr_raw and max_cols >= 2:
+        hdr_f = list(hdr_raw)
+        while len(hdr_f) < max_cols:
+            hdr_f.append("")
+        hdr_f = hdr_f[:max_cols]
+
+    sep_block = 0
+    if hdr_f and max_cols >= 2:
+        sep_block = line_h + max(8, _LIST_PNG_SCALE // 2)
+
     n = len(lines)
-    needed_h = pad + head_h + _LIST_PNG_HEAD_GAP + n * line_h + pad + 24
+    needed_h = (
+        pad + head_h + _LIST_PNG_HEAD_GAP + sep_block + n * line_h + pad + 24
+    )
     if needed_h > _LIST_PNG_MAX_HEIGHT:
         raise RuntimeError("LIST_IMAGE_TOO_TALL")
 
     img = Image.new("RGB", (W, needed_h), _LIST_PNG_BG)
     draw = ImageDraw.Draw(img)
-    y = pad
+    y = float(pad)
     draw.text((pad, y), heading, fill=_LIST_PNG_HEAD, font=font_h)
     y += head_h + _LIST_PNG_HEAD_GAP
-    max_txt = float(W - 2 * pad)
-    for row in lines:
-        fitted = _fit_png_line(draw, row, font, max_txt)
-        draw.text((pad, y), fitted, fill=_LIST_PNG_TEXT, font=font)
-        y += line_h
+
+    inner_w = float(W - 2 * pad)
+    max_txt = inner_w
+
+    if max_cols <= 1:
+        for row in lines:
+            fitted = _fit_png_line(draw, row, font, max_txt)
+            draw.text((pad, y), fitted, fill=_LIST_PNG_TEXT, font=font)
+            y += line_h
+    else:
+        col_gap = float(min(72, max(20, _LIST_PNG_SCALE * 3)))
+        col_w = (inner_w - col_gap * (max_cols - 1)) / max_cols
+
+        if hdr_f:
+            for ci in range(max_cols):
+                x = pad + ci * (col_w + col_gap)
+                cell = hdr_f[ci] if ci < len(hdr_f) else ""
+                fitted = _fit_png_line(draw, cell, font, col_w)
+                draw.text((x, y), fitted, fill=_LIST_PNG_HEAD, font=font)
+            y += line_h
+            rule_y = int(y)
+            rule_w = max(1, _LIST_PNG_SCALE // 12)
+            draw.line(
+                [(int(pad), rule_y), (int(W - pad), rule_y)],
+                fill=(65, 72, 88),
+                width=rule_w,
+            )
+            y += float(rule_w + max(6, _LIST_PNG_SCALE // 4))
+
+        for row in lines:
+            cells = _png_split_row_cells(row)
+            while len(cells) < max_cols:
+                cells.append("")
+            cells = cells[:max_cols]
+            for ci in range(max_cols):
+                x = pad + ci * (col_w + col_gap)
+                fitted = _fit_png_line(draw, cells[ci], font, col_w)
+                draw.text((x, y), fitted, fill=_LIST_PNG_TEXT, font=font)
+            y += line_h
+
     y += pad
-    img = img.crop((0, 0, W, y))
+    img = img.crop((0, 0, W, int(y)))
     buf = BytesIO()
     img.save(buf, format="PNG", optimize=True)
     buf.seek(0)

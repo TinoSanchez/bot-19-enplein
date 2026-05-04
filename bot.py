@@ -8,6 +8,7 @@ import asyncio
 import os
 import sqlite3
 import sys
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -19,6 +20,13 @@ from dotenv import load_dotenv
 from database import Player, PlayerDB, PointDB, PointEntry, RankDB, RankEntry
 from point_seed_list import normalize_point_key
 from rank_seed_list import tier_label
+
+try:
+    from PIL import Image, ImageDraw, ImageFont
+
+    _HAS_PIL = True
+except ImportError:
+    _HAS_PIL = False
 
 load_dotenv()
 
@@ -142,19 +150,18 @@ def _embed_ok(message: str) -> discord.Embed:
 # Taille max du contenu entre ```…``` (la description d’embed inclut aussi titre + en-têtes, reste < 4096).
 _LIST_EMBED_PART_MAX = 3000
 
-# ANSI faint + gris 256 (235) : contraste plus bas = rendu visuel plus « petit » (pas de taille de police réelle).
-_ANSI_LIST_STYLE = "\x1b[2m\x1b[38;5;235m"
-_ANSI_LIST_RESET = "\x1b[0m"
+# Police réelle plus petite : uniquement via image PNG (LIST_TEXT_ONLY=1 pour rester en texte embed).
+_LIST_PNG_FONT_BODY = 10
+_LIST_PNG_FONT_HEAD = 13
+_LIST_PNG_WIDTH = 920
+_LIST_PNG_MAX_ROWS = 100
+_LIST_PNG_BG = (10, 14, 20)
+_LIST_PNG_TEXT = (230, 235, 245)
+_LIST_PNG_HEAD = (249, 200, 14)
 
 
-def _sanitize_list_for_ansi(raw: str) -> str:
-    """Empêche les séquences d’échappement dans les données de casser le rendu ANSI."""
-    return raw.replace("\x1b", "").replace("\u001b", "")
-
-
-def _list_codeblock_compact(part: str) -> str:
-    safe = _sanitize_list_for_ansi(part)
-    return f"```ansi\n{_ANSI_LIST_STYLE}{safe}{_ANSI_LIST_RESET}\n```"
+def _list_codeblock_plain(part: str) -> str:
+    return f"```\n{part}\n```"
 
 # Discord ne permet pas d’afficher une police plus « petite » : on compacte chaque entrée sur une ligne
 # (troncature avec …) pour limiter les retours à la ligne automatiques du client.
@@ -238,6 +245,84 @@ def _split_list_body(s: str, max_part: int = _LIST_EMBED_PART_MAX) -> List[str]:
     return chunks
 
 
+def _list_render_prefers_png() -> bool:
+    """PNG = seule option pour une police réellement plus petite ; désactivable avec LIST_TEXT_ONLY=1."""
+    if not _HAS_PIL:
+        return False
+    v = (os.getenv("LIST_TEXT_ONLY") or "").strip().lower()
+    return v not in ("1", "true", "oui", "yes", "on")
+
+
+def _split_lines_for_png(lines: List[str], max_rows: int = _LIST_PNG_MAX_ROWS) -> List[List[str]]:
+    if not lines:
+        return []
+    return [lines[i : i + max_rows] for i in range(0, len(lines), max_rows)]
+
+
+def _load_png_font(size: int) -> Any:
+    paths = [
+        ROOT / "assets" / "DejaVuSansMono.ttf",
+        Path("C:/Windows/Fonts/consola.ttf"),
+        Path("C:/Windows/Fonts/cour.ttf"),
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"),
+        Path("/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf"),
+    ]
+    for p in paths:
+        if p.is_file():
+            try:
+                return ImageFont.truetype(str(p), size)
+            except OSError:
+                continue
+    return ImageFont.load_default()
+
+
+def _fit_png_line(draw: Any, text: str, font: Any, max_px: float) -> str:
+    def tl(t: str) -> float:
+        if hasattr(draw, "textlength"):
+            return float(draw.textlength(t, font=font))
+        b = draw.textbbox((0, 0), t, font=font)
+        return float(b[2] - b[0])
+
+    if tl(text) <= max_px:
+        return text
+    ell = "…"
+    lo, hi = 0, len(text)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        cand = text[:mid] + ell
+        if tl(cand) <= max_px:
+            lo = mid
+        else:
+            hi = mid - 1
+    return text[:lo] + ell if lo > 0 else ell
+
+
+def _render_list_png_small(lines: List[str], heading: str) -> BytesIO:
+    """Liste dessinée en petite taille (px), couleurs lisibles (pas d’effet « contraste » seul)."""
+    W = _LIST_PNG_WIDTH
+    pad = 14
+    font = _load_png_font(_LIST_PNG_FONT_BODY)
+    font_h = _load_png_font(_LIST_PNG_FONT_HEAD)
+    img = Image.new("RGB", (W, 7000), _LIST_PNG_BG)
+    draw = ImageDraw.Draw(img)
+    bbox = draw.textbbox((0, 0), "Hg", font=font)
+    line_h = bbox[3] - bbox[1] + 4
+    y = pad
+    draw.text((pad, y), heading, fill=_LIST_PNG_HEAD, font=font_h)
+    y += line_h + 10
+    max_txt = float(W - 2 * pad)
+    for row in lines:
+        fitted = _fit_png_line(draw, row, font, max_txt)
+        draw.text((pad, y), fitted, fill=_LIST_PNG_TEXT, font=font)
+        y += line_h
+    y += pad
+    img = img.crop((0, 0, W, min(y, 7000)))
+    buf = BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    buf.seek(0)
+    return buf
+
+
 async def _followup_send_branded_list(
     interaction: discord.Interaction,
     *,
@@ -248,7 +333,7 @@ async def _followup_send_branded_list(
     text: str,
     empty_msg: str,
 ) -> None:
-    """Listes 19ENPLEIN : texte dans l’embed (bloc monospace), logo optionnel sur le 1er message."""
+    """Listes : image PNG en petite police, ou texte si LIST_TEXT_ONLY=1 / sans Pillow."""
     has_logo = _LOGO_PATH.is_file()
     fn = _LOGO_PATH.name
 
@@ -264,7 +349,7 @@ async def _followup_send_branded_list(
             sub = f"\n`▰▰▰` **{index}** / **{total}** `▰▰▰`\n"
 
         def _build_desc(p: str) -> str:
-            return f"**{list_heading}**{sub}\n{_list_codeblock_compact(p)}"
+            return f"**{list_heading}**{sub}\n{_list_codeblock_plain(p)}"
 
         body = _build_desc(part)
         while len(body) > 4090 and "\n" in part:
@@ -305,6 +390,50 @@ async def _followup_send_branded_list(
             else:
                 await interaction.followup.send(embed=e)
             return
+
+        line_list = text.strip().split("\n")
+
+        if _list_render_prefers_png():
+            try:
+                batches = _split_lines_for_png(line_list)
+                nbat = len(batches)
+                for i, batch in enumerate(batches):
+                    idx = i + 1
+                    head_p = (
+                        list_heading if nbat == 1 else f"{list_heading}  ({idx}/{nbat})"
+                    )
+                    png_buf = _render_list_png_small(batch, head_p)
+                    fname = "liste.png" if nbat == 1 else f"liste_{idx}.png"
+                    sub = ""
+                    if nbat > 1:
+                        sub = f"\n`▰▰▰` **{idx}** / **{nbat}** `▰▰▰`\n"
+                    desc = f"**{list_heading}**{sub}"
+                    e = discord.Embed(
+                        title=f"{emoji} **{_BRAND}**",
+                        description=desc,
+                        color=accent,
+                        timestamp=discord.utils.utcnow(),
+                    )
+                    foot = f"🔥 {_BRAND} · {footer_hint}"
+                    if nbat > 1:
+                        foot += f" · {idx}/{nbat}"
+                    e.set_footer(text=foot)
+                    e.set_image(url=f"attachment://{fname}")
+                    list_f = discord.File(png_buf, filename=fname)
+                    if i == 0 and has_logo:
+                        e.set_thumbnail(url=f"attachment://{fn}")
+                        await interaction.followup.send(
+                            embed=e,
+                            files=[
+                                discord.File(_LOGO_PATH, filename=fn),
+                                list_f,
+                            ],
+                        )
+                    else:
+                        await interaction.followup.send(embed=e, files=[list_f])
+                return
+            except Exception:
+                pass
 
         parts = _split_list_body(text)
         n = len(parts)

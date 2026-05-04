@@ -293,8 +293,65 @@ def _png_column_headers_for_heading(heading: str) -> Optional[List[str]]:
     if "point" in h:
         return ["Joueur", "Pts +", "Total"]
     if "rang" in h:
-        return ["Joueur", "Statut", "Montant"]
+        return ["Joueur", "Statut", "Montant €"]
     return None
+
+
+def _monospace_column_block(lines: List[str], heading: str) -> str:
+    """Aligne les colonnes dans un bloc monospace (mode LIST_TEXT_ONLY / fallback sans PNG)."""
+    if not lines:
+        return ""
+    rows_cells = [_png_split_row_cells(r) for r in lines]
+    max_cols = max((len(r) for r in rows_cells), default=1)
+    if max_cols <= 1:
+        return "\n".join(lines)
+
+    hdr = _png_column_headers_for_heading(heading)
+    if hdr:
+        while len(hdr) < max_cols:
+            hdr.append("")
+        hdr = hdr[:max_cols]
+    else:
+        hdr = []
+
+    col_widths = [2] * max_cols
+    if hdr:
+        for i, h in enumerate(hdr):
+            col_widths[i] = max(col_widths[i], len(h))
+    for cells in rows_cells:
+        for i in range(min(len(cells), max_cols)):
+            col_widths[i] = max(col_widths[i], len(cells[i]))
+
+    cap = 48
+    col_widths = [min(w, cap) for w in col_widths]
+
+    sep = " │ "
+
+    def _trim_cell(s: str, w: int) -> str:
+        s = (s or "").replace("\n", " ").strip()
+        if len(s) <= w:
+            return s
+        if w <= 1:
+            return "…"
+        return s[: w - 1] + "…"
+
+    def _format_row(cells: List[str]) -> str:
+        parts = []
+        for i in range(max_cols):
+            c = cells[i] if i < len(cells) else ""
+            parts.append(_trim_cell(c, col_widths[i]).ljust(col_widths[i]))
+        return sep.join(parts)
+
+    out: List[str] = []
+    if hdr:
+        out.append(_format_row(hdr))
+        rule_len = sum(col_widths) + len(sep) * (max_cols - 1)
+        out.append("─" * rule_len)
+    for cells in rows_cells:
+        while len(cells) < max_cols:
+            cells.append("")
+        out.append(_format_row(cells[:max_cols]))
+    return "\n".join(out)
 
 
 def _fit_png_line(draw: Any, text: str, font: Any, max_px: float) -> str:
@@ -416,6 +473,7 @@ async def _followup_send_branded_list(
     footer_hint: str,
     text: str,
     empty_msg: str,
+    align_columns_text: bool = False,
 ) -> None:
     """Listes : image PNG en petite police, ou texte si LIST_TEXT_ONLY=1 / sans Pillow."""
     has_logo = _LOGO_PATH.is_file()
@@ -475,11 +533,16 @@ async def _followup_send_branded_list(
                 await interaction.followup.send(embed=e)
             return
 
-        line_list = text.strip().split("\n")
+        raw_lines = text.strip().split("\n")
+        display_text = (
+            _monospace_column_block(raw_lines, list_heading)
+            if align_columns_text
+            else text.strip()
+        )
 
         if _list_render_prefers_png():
             try:
-                png_buf = _render_list_png_small(line_list, list_heading)
+                png_buf = _render_list_png_small(raw_lines, list_heading)
                 desc = f"**{list_heading}**"
                 e = discord.Embed(
                     title=f"{emoji} **{_BRAND}**",
@@ -505,7 +568,7 @@ async def _followup_send_branded_list(
             except Exception:
                 pass
 
-        parts = _split_list_body(text)
+        parts = _split_list_body(display_text)
         n = len(parts)
         for i, part in enumerate(parts):
             idx = i + 1
@@ -702,6 +765,7 @@ class AffiCog(commands.Cog):
             footer_hint="Affiliation & KYC",
             text=text,
             empty_msg="La liste est vide.",
+            align_columns_text=True,
         )
 
 
@@ -854,6 +918,7 @@ class PointCog(commands.Cog):
             footer_hint="Classement points",
             text=text,
             empty_msg="La liste est vide.",
+            align_columns_text=True,
         )
 
 
@@ -1045,6 +1110,7 @@ class RankCog(commands.Cog):
             footer_hint="Bronze · Argent · Gold · Emeraude",
             text=text,
             empty_msg="La liste est vide.",
+            align_columns_text=True,
         )
 
 

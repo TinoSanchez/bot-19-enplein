@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 
 from database import Player, PlayerDB, PointDB, PointEntry, RankDB, RankEntry
 from point_seed_list import normalize_point_key
-from rank_seed_list import tier_name_only
+from rank_seed_list import effective_montant_eur, tier_name_only
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -165,7 +165,7 @@ _LIST_PNG_MAX_HEIGHT = 120_000
 _LIST_PNG_BG = (10, 14, 20)
 _LIST_PNG_TEXT = (230, 235, 245)
 _LIST_PNG_HEAD = (249, 200, 14)
-# Liste /rank : colonnes Joueur + Rang (PNG)
+# Liste /rank : colonnes Joueur + Rang + Montant (PNG)
 _LIST_PNG_RANK_TIER = (249, 200, 14)
 _LIST_PNG_RANK_EUR = (130, 230, 255)
 
@@ -206,8 +206,13 @@ def _fmt_list_line_point(p: PointEntry) -> str:
 
 
 def _fmt_list_line_rank(r: RankEntry) -> str:
-    tier = _list_one_line(tier_name_only(r.tier), 22)
-    line = f"{_list_one_line(r.display_name, 34)} · {tier}"
+    tier = _list_one_line(tier_name_only(r.tier), 18)
+    mont = f"{effective_montant_eur(r.tier, r.montant_eur)} €"
+    line = (
+        f"{_list_one_line(r.display_name, 30)} · "
+        f"{tier} · "
+        f"{mont}"
+    )
     return _list_one_line(line, _LIST_LINE_HARD_MAX)
 
 
@@ -291,7 +296,7 @@ def _png_column_headers_for_heading(heading: str) -> Optional[List[str]]:
     if "point" in h:
         return ["Joueur", "Pts +"]
     if "rang" in h:
-        return ["Joueur", "Rang"]
+        return ["Joueur", "Rang", "Montant (€)"]
     return None
 
 
@@ -436,7 +441,7 @@ def _render_list_png_small(lines: List[str], heading: str) -> BytesIO:
         col_gap = float(min(72, max(20, _LIST_PNG_SCALE * 3)))
         col_w = (inner_w - col_gap * (max_cols - 1)) / max_cols
 
-        is_rank_list = "rang" in heading.lower() and max_cols >= 2
+        is_rank_list = "rang" in heading.lower() and max_cols >= 3
 
         if hdr_f:
             for ci in range(max_cols):
@@ -944,6 +949,7 @@ def _rank_embed(r: RankEntry) -> discord.Embed:
     rows = [
         ("Joueur", r.display_name),
         ("Rang", tier_name_only(r.tier)),
+        ("Montant (€)", f"{effective_montant_eur(r.tier, r.montant_eur)} €"),
     ]
     return _embed_branded(
         title="Rang & statut",

@@ -50,6 +50,13 @@ def tier_default_eur(tier: str) -> int:
     return int(TIER_DEFAULT_EUR.get(tier, 0))
 
 
+def effective_montant_eur(tier: str, montant_stored: int) -> int:
+    """Affichage : montant en base si > 0, sinon seuil du palier (15 / 30 / 50 / 100)."""
+    if montant_stored > 0:
+        return int(montant_stored)
+    return tier_default_eur(tier)
+
+
 # (clé, nom affiché, rang le plus haut atteint selon le tableau)
 RANK_INITIAL: List[Tuple[str, str, str]] = [
     ("gaylord", "Gaylord", "argent"),

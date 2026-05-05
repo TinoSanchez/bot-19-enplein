@@ -93,6 +93,11 @@ _CLR_CYAN = 0x00D4FF
 _CLR_GOLD = 0xF9C80E
 _CLR_NEON = 0x76FF03
 _BRAND = "19ENPLEIN CASINO"
+_ALLOWED_ROLE_IDS = {
+    1435766360167677973,
+    1435761344979664956,
+    1435763980139368539,
+}
 
 
 def _truncate_cell(s: str, max_len: int) -> str:
@@ -1142,6 +1147,36 @@ class Bot19(commands.Bot):
     def __init__(self) -> None:
         super().__init__(command_prefix="!", intents=intents, help_command=None)
         self._guild_sync_done = False
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Bloque toutes les commandes slash hors rôles autorisés."""
+        user = interaction.user
+        if not isinstance(user, discord.Member):
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    "Commande indisponible ici.", ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    "Commande indisponible ici.", ephemeral=True
+                )
+            return False
+
+        user_role_ids = {int(r.id) for r in user.roles}
+        if user_role_ids.intersection(_ALLOWED_ROLE_IDS):
+            return True
+
+        if interaction.response.is_done():
+            await interaction.followup.send(
+                "Tu n'as pas la permission d'utiliser les commandes du bot.",
+                ephemeral=True,
+            )
+        else:
+            await interaction.response.send_message(
+                "Tu n'as pas la permission d'utiliser les commandes du bot.",
+                ephemeral=True,
+            )
+        return False
 
     async def setup_hook(self) -> None:
         await self.add_cog(AffiCog(self))

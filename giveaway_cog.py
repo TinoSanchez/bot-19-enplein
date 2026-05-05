@@ -18,11 +18,17 @@ from discord.ext import commands
 
 from database import GiveawayDB
 from giveaway_templates import (
+    TEMPLATES,
     build_embed_fields,
     build_result_fields,
     footer_participants,
     template_defaults,
 )
+
+_TEMPLATE_CHOICES = [
+    app_commands.Choice(name=str(v["choice_name"]), value=k)
+    for k, v in TEMPLATES.items()
+]
 
 
 class GiveawayParticipateButton(discord.ui.Button):
@@ -53,10 +59,6 @@ def build_giveaway_view(giveaway_id: str) -> discord.ui.View:
 
 class GiveawayCog(commands.Cog):
     """Slash `/win` + boutons persistants."""
-    win = app_commands.Group(
-        name="win",
-        description="Giveaways instant : /win lundi, stream, vendredi, mensuel",
-    )
 
     def __init__(self, bot: commands.Bot, db_path: Path) -> None:
         self.bot = bot
@@ -259,42 +261,20 @@ class GiveawayCog(commands.Cog):
                     ephemeral=True,
                 )
 
-    @win.command(name="stream", description="Lancer le giveaway template stream")
+    @app_commands.command(
+        name="win",
+        description="Lancer un giveaway instant (stream/lundi/vendredi/mensuel)",
+    )
     @app_commands.guild_only()
     @app_commands.describe(
+        template="Template giveaway",
         joueurs='Optionnel : mentions gagnants forcés (ex: "@a @b")',
     )
-    async def giveaway_stream(
-        self, interaction: discord.Interaction, joueurs: Optional[str] = None
+    @app_commands.choices(template=_TEMPLATE_CHOICES)
+    async def win(
+        self,
+        interaction: discord.Interaction,
+        template: str,
+        joueurs: Optional[str] = None,
     ) -> None:
-        await self._launch_giveaway(interaction, "stream", joueurs)
-
-    @win.command(name="lundi", description="Lancer le giveaway template lundi")
-    @app_commands.guild_only()
-    @app_commands.describe(
-        joueurs='Optionnel : mentions gagnants forcés (ex: "@a @b")',
-    )
-    async def giveaway_lundi(
-        self, interaction: discord.Interaction, joueurs: Optional[str] = None
-    ) -> None:
-        await self._launch_giveaway(interaction, "lundi", joueurs)
-
-    @win.command(name="vendredi", description="Lancer le giveaway template vendredi")
-    @app_commands.guild_only()
-    @app_commands.describe(
-        joueurs='Optionnel : mentions gagnants forcés (ex: "@a @b")',
-    )
-    async def giveaway_vendredi(
-        self, interaction: discord.Interaction, joueurs: Optional[str] = None
-    ) -> None:
-        await self._launch_giveaway(interaction, "vendredi", joueurs)
-
-    @win.command(name="mensuel", description="Lancer le giveaway template mensuel")
-    @app_commands.guild_only()
-    @app_commands.describe(
-        joueurs='Optionnel : mentions gagnants forcés (ex: "@a @b")',
-    )
-    async def giveaway_mensuel(
-        self, interaction: discord.Interaction, joueurs: Optional[str] = None
-    ) -> None:
-        await self._launch_giveaway(interaction, "mensuel", joueurs)
+        await self._launch_giveaway(interaction, template, joueurs)

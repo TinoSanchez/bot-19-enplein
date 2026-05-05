@@ -52,10 +52,10 @@ def build_giveaway_view(giveaway_id: str) -> discord.ui.View:
 
 
 class GiveawayCog(commands.Cog):
-    """Slash `/giveaway` + boutons persistants."""
-    giveaway = app_commands.Group(
-        name="giveaway",
-        description="Giveaways instant : /giveaway lundi, stream, vendredi, mensuel",
+    """Slash `/win` + boutons persistants."""
+    win = app_commands.Group(
+        name="win",
+        description="Giveaways instant : /win lundi, stream, vendredi, mensuel",
     )
 
     def __init__(self, bot: commands.Bot, db_path: Path) -> None:
@@ -259,7 +259,7 @@ class GiveawayCog(commands.Cog):
                     ephemeral=True,
                 )
 
-    @giveaway.command(name="stream", description="Lancer le giveaway template stream")
+    @win.command(name="stream", description="Lancer le giveaway template stream")
     @app_commands.guild_only()
     @app_commands.describe(
         joueurs='Optionnel : mentions gagnants forcés (ex: "@a @b")',
@@ -269,7 +269,7 @@ class GiveawayCog(commands.Cog):
     ) -> None:
         await self._launch_giveaway(interaction, "stream", joueurs)
 
-    @giveaway.command(name="lundi", description="Lancer le giveaway template lundi")
+    @win.command(name="lundi", description="Lancer le giveaway template lundi")
     @app_commands.guild_only()
     @app_commands.describe(
         joueurs='Optionnel : mentions gagnants forcés (ex: "@a @b")',
@@ -279,7 +279,7 @@ class GiveawayCog(commands.Cog):
     ) -> None:
         await self._launch_giveaway(interaction, "lundi", joueurs)
 
-    @giveaway.command(name="vendredi", description="Lancer le giveaway template vendredi")
+    @win.command(name="vendredi", description="Lancer le giveaway template vendredi")
     @app_commands.guild_only()
     @app_commands.describe(
         joueurs='Optionnel : mentions gagnants forcés (ex: "@a @b")',
@@ -289,7 +289,7 @@ class GiveawayCog(commands.Cog):
     ) -> None:
         await self._launch_giveaway(interaction, "vendredi", joueurs)
 
-    @giveaway.command(name="mensuel", description="Lancer le giveaway template mensuel")
+    @win.command(name="mensuel", description="Lancer le giveaway template mensuel")
     @app_commands.guild_only()
     @app_commands.describe(
         joueurs='Optionnel : mentions gagnants forcés (ex: "@a @b")',

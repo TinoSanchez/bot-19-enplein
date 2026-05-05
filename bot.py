@@ -1150,35 +1150,49 @@ class Bot19(commands.Bot):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Bloque toutes les commandes slash hors rôles autorisés."""
-        user = interaction.user
-        if not isinstance(user, discord.Member):
+        try:
+            user = interaction.user
+            if not isinstance(user, discord.Member):
+                if interaction.response.is_done():
+                    await interaction.followup.send(
+                        "Commande indisponible ici.", ephemeral=True
+                    )
+                else:
+                    await interaction.response.send_message(
+                        "Commande indisponible ici.", ephemeral=True
+                    )
+                return False
+
+            user_role_ids = {int(r.id) for r in user.roles}
+            is_owner = bool(interaction.guild and interaction.guild.owner_id == user.id)
+            is_admin = bool(user.guild_permissions.administrator)
+            if is_owner or is_admin or user_role_ids.intersection(_ALLOWED_ROLE_IDS):
+                return True
+
             if interaction.response.is_done():
                 await interaction.followup.send(
-                    "Commande indisponible ici.", ephemeral=True
+                    "Tu n'as pas la permission d'utiliser les commandes du bot.",
+                    ephemeral=True,
                 )
             else:
                 await interaction.response.send_message(
-                    "Commande indisponible ici.", ephemeral=True
+                    "Tu n'as pas la permission d'utiliser les commandes du bot.",
+                    ephemeral=True,
                 )
             return False
-
-        user_role_ids = {int(r.id) for r in user.roles}
-        is_owner = bool(interaction.guild and interaction.guild.owner_id == user.id)
-        is_admin = bool(user.guild_permissions.administrator)
-        if is_owner or is_admin or user_role_ids.intersection(_ALLOWED_ROLE_IDS):
-            return True
-
-        if interaction.response.is_done():
-            await interaction.followup.send(
-                "Tu n'as pas la permission d'utiliser les commandes du bot.",
-                ephemeral=True,
-            )
-        else:
-            await interaction.response.send_message(
-                "Tu n'as pas la permission d'utiliser les commandes du bot.",
-                ephemeral=True,
-            )
-        return False
+        except Exception as e:
+            print(f"[interaction_check] erreur: {e}", flush=True)
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    f"Erreur permission: `{e}`",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.response.send_message(
+                    f"Erreur permission: `{e}`",
+                    ephemeral=True,
+                )
+            return False
 
     async def setup_hook(self) -> None:
         await self.add_cog(AffiCog(self))
@@ -1207,6 +1221,17 @@ async def main() -> None:
                     pass
             bot._guild_sync_done = True
         print(f"Connecté en tant que {bot.user} ({bot.user.id if bot.user else '?'})")
+
+    @bot.tree.error
+    async def on_app_command_error(
+        interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
+        print(f"[app_command_error] {error}", flush=True)
+        msg = f"Erreur commande: `{error}`"
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
 
     async with bot:
         await bot.start(TOKEN)

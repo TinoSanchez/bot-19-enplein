@@ -189,62 +189,75 @@ class GiveawayCog(commands.Cog):
         template: str,
         joueurs: Optional[str] = None,
     ) -> None:
-        if not interaction.channel or not isinstance(
-            interaction.channel, discord.TextChannel
-        ):
-            await interaction.response.send_message(
-                "Utilise cette commande dans un salon texte.", ephemeral=True
-            )
-            return
-
-        amount_eur, winner_count, duration_minutes = template_defaults(template)
-        ends_at = time.time() + float(duration_minutes) * 60.0
-        gid = uuid.uuid4().hex
-
-        title, desc, color = build_embed_fields(
-            template,
-            amount_eur=amount_eur,
-            winner_count=winner_count,
-            ends_ts=int(ends_at),
-        )
-        embed = discord.Embed(title=title, description=desc, color=color)
-        embed.set_footer(text=footer_participants(0))
-
-        view = build_giveaway_view(gid)
-        await interaction.response.defer(ephemeral=True, thinking=True)
         try:
-            msg = await interaction.channel.send(embed=embed, view=view)
-        except discord.Forbidden:
-            await interaction.followup.send(
-                "Je ne peux pas envoyer de message dans ce salon.", ephemeral=True
+            if not interaction.channel or not isinstance(
+                interaction.channel, discord.TextChannel
+            ):
+                await interaction.response.send_message(
+                    "Utilise cette commande dans un salon texte.", ephemeral=True
+                )
+                return
+
+            amount_eur, winner_count, duration_minutes = template_defaults(template)
+            ends_at = time.time() + float(duration_minutes) * 60.0
+            gid = uuid.uuid4().hex
+
+            title, desc, color = build_embed_fields(
+                template,
+                amount_eur=amount_eur,
+                winner_count=winner_count,
+                ends_ts=int(ends_at),
             )
-            return
+            embed = discord.Embed(title=title, description=desc, color=color)
+            embed.set_footer(text=footer_participants(0))
 
-        self.db.create(
-            gid,
-            guild_id=interaction.guild.id if interaction.guild else 0,
-            channel_id=interaction.channel.id,
-            message_id=msg.id,
-            template_key=template,
-            amount_eur=amount_eur,
-            winner_count=winner_count,
-            ends_at=ends_at,
-        )
-        self.bot.add_view(view)
+            view = build_giveaway_view(gid)
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            try:
+                msg = await interaction.channel.send(embed=embed, view=view)
+            except discord.Forbidden:
+                await interaction.followup.send(
+                    "Je ne peux pas envoyer de message dans ce salon.", ephemeral=True
+                )
+                return
 
-        forced_winners = self._parse_mentioned_user_ids(joueurs or "")
-        delay = ends_at - time.time()
-        if forced_winners:
-            asyncio.create_task(self._finalize_giveaway(gid, forced_winners=forced_winners))
-        elif delay > 0:
-            asyncio.create_task(self._sleep_and_finalize(gid, delay))
-        else:
-            asyncio.create_task(self._finalize_giveaway(gid))
+            self.db.create(
+                gid,
+                guild_id=interaction.guild.id if interaction.guild else 0,
+                channel_id=interaction.channel.id,
+                message_id=msg.id,
+                template_key=template,
+                amount_eur=amount_eur,
+                winner_count=winner_count,
+                ends_at=ends_at,
+            )
+            self.bot.add_view(view)
 
-        await interaction.followup.send(
-            f"Giveaway publié · ID interne `{gid[:8]}…`",
-            ephemeral=True,
-        )
+            forced_winners = self._parse_mentioned_user_ids(joueurs or "")
+            delay = ends_at - time.time()
+            if forced_winners:
+                asyncio.create_task(self._finalize_giveaway(gid, forced_winners=forced_winners))
+            elif delay > 0:
+                asyncio.create_task(self._sleep_and_finalize(gid, delay))
+            else:
+                asyncio.create_task(self._finalize_giveaway(gid))
+
+            await interaction.followup.send(
+                f"Giveaway publié · ID interne `{gid[:8]}…`",
+                ephemeral=True,
+            )
+        except Exception as e:
+            print(f"[giveaway] erreur: {e}", flush=True)
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    f"Erreur giveaway: `{e}`",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.response.send_message(
+                    f"Erreur giveaway: `{e}`",
+                    ephemeral=True,
+                )
 
     @giveaway.command(name="stream", description="Lancer le giveaway template stream")
     @app_commands.guild_only()

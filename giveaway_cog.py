@@ -20,6 +20,7 @@ from giveaway_templates import (
     build_embed_fields,
     build_result_fields,
     footer_participants,
+    template_defaults,
 )
 
 _TEMPLATE_CHOICES = [
@@ -176,18 +177,12 @@ class GiveawayCog(commands.Cog):
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.describe(
         template="Nom du template",
-        nombre_de_personne="Nombre de gagnants",
-        argent="Montant à gagner (€)",
-        temps="Durée en minutes",
     )
     @app_commands.choices(template=_TEMPLATE_CHOICES)
     async def giveaway(
         self,
         interaction: discord.Interaction,
         template: str,
-        nombre_de_personne: app_commands.Range[int, 1, 25],
-        argent: app_commands.Range[int, 1, 50000],
-        temps: app_commands.Range[int, 1, 10080],
     ) -> None:
         if not interaction.channel or not isinstance(
             interaction.channel, discord.TextChannel
@@ -197,13 +192,14 @@ class GiveawayCog(commands.Cog):
             )
             return
 
-        ends_at = time.time() + float(temps) * 60.0
+        amount_eur, winner_count, duration_minutes = template_defaults(template)
+        ends_at = time.time() + float(duration_minutes) * 60.0
         gid = uuid.uuid4().hex
 
         title, desc, color = build_embed_fields(
             template,
-            amount_eur=int(argent),
-            winner_count=int(nombre_de_personne),
+            amount_eur=amount_eur,
+            winner_count=winner_count,
             ends_ts=int(ends_at),
         )
         embed = discord.Embed(title=title, description=desc, color=color)
@@ -225,8 +221,8 @@ class GiveawayCog(commands.Cog):
             channel_id=interaction.channel.id,
             message_id=msg.id,
             template_key=template,
-            amount_eur=int(argent),
-            winner_count=int(nombre_de_personne),
+            amount_eur=amount_eur,
+            winner_count=winner_count,
             ends_at=ends_at,
         )
         self.bot.add_view(view)

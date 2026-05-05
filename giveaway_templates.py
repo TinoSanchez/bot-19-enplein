@@ -11,6 +11,9 @@ from typing import Any, Dict, List, Tuple
 TEMPLATES: Dict[str, Dict[str, Any]] = {
     "stream": {
         "choice_name": "stream",
+        "default_amount": 5,
+        "default_winners": 1,
+        "default_duration_minutes": 1440,
         "title": "🎰 Giveaway Stream",
         "description": (
             "🏆 Giveaway **STREAM** en cours ! 🏆\n\n"
@@ -31,6 +34,9 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
     },
     "lundi": {
         "choice_name": "Lundi",
+        "default_amount": 50,
+        "default_winners": 2,
+        "default_duration_minutes": 10080,
         "title": "🎰 Giveaway du Lundi",
         "description": (
             "🏆 Giveaway **LUNDI** en cours ! 🏆\n\n"
@@ -52,6 +58,9 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
     },
     "vendredi": {
         "choice_name": "vendredi",
+        "default_amount": 75,
+        "default_winners": 3,
+        "default_duration_minutes": 10080,
         "title": "🎰 Giveaway du Vendredi",
         "description": (
             "🏆 Giveaway **VENDREDI** en cours ! 🏆\n\n"
@@ -73,6 +82,9 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
     },
     "mensuel": {
         "choice_name": "mensuel",
+        "default_amount": 90,
+        "default_winners": 3,
+        "default_duration_minutes": 43200,
         "title": "🎰 Giveaway Mensuel",
         "description": (
             "🏆 Giveaway **MENSUEL** en cours ! 🏆\n\n"
@@ -101,6 +113,17 @@ def template_keys() -> Tuple[str, ...]:
 def template_choice_name(key: str) -> str:
     t = TEMPLATES.get(key)
     return str(t["choice_name"]) if t else key
+
+
+def template_defaults(template_key: str) -> Tuple[int, int, int]:
+    """
+    Retourne (amount_eur, winner_count, duration_minutes) pour un template.
+    """
+    t = TEMPLATES.get(template_key) or TEMPLATES["stream"]
+    amount = int(t.get("default_amount", 5))
+    winners = int(t.get("default_winners", 1))
+    duration = int(t.get("default_duration_minutes", 60))
+    return amount, winners, duration
 
 
 def _ends_tags(ends_ts: int) -> Tuple[str, str]:

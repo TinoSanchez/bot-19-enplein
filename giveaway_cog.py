@@ -144,7 +144,7 @@ class GiveawayCog(commands.Cog):
         rec = self.db.get(gid)
         if not rec or rec.ended:
             return
-        winners: list[int] = []
+        winners: List[int] = []
         if forced_winners:
             uniq = list(dict.fromkeys(forced_winners))
             winners = uniq[: rec.winner_count]
@@ -238,7 +238,9 @@ class GiveawayCog(commands.Cog):
             forced_winners = self._parse_mentioned_user_ids(joueurs or "")
             delay = ends_at - time.time()
             if forced_winners:
-                asyncio.create_task(self._finalize_giveaway(gid, forced_winners=forced_winners))
+                asyncio.create_task(
+                    self._finalize_giveaway(gid, forced_winners=forced_winners)
+                )
             elif delay > 0:
                 asyncio.create_task(self._sleep_and_finalize(gid, delay))
             else:

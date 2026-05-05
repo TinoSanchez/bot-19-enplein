@@ -106,15 +106,6 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
 }
 
 
-def template_keys() -> Tuple[str, ...]:
-    return tuple(TEMPLATES.keys())
-
-
-def template_choice_name(key: str) -> str:
-    t = TEMPLATES.get(key)
-    return str(t["choice_name"]) if t else key
-
-
 def template_defaults(template_key: str) -> Tuple[int, int, int]:
     """
     Retourne (amount_eur, winner_count, duration_minutes) pour un template.

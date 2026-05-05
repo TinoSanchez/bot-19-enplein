@@ -192,10 +192,14 @@ class GiveawayCog(commands.Cog):
         joueurs: Optional[str] = None,
     ) -> None:
         try:
+            # ACK immédiat pour éviter "L'application ne répond plus".
+            if not interaction.response.is_done():
+                await interaction.response.defer(ephemeral=True, thinking=True)
+
             if not interaction.channel or not isinstance(
                 interaction.channel, discord.TextChannel
             ):
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "Utilise cette commande dans un salon texte.", ephemeral=True
                 )
                 return
@@ -214,7 +218,6 @@ class GiveawayCog(commands.Cog):
             embed.set_footer(text=footer_participants(0))
 
             view = build_giveaway_view(gid)
-            await interaction.response.defer(ephemeral=True, thinking=True)
             try:
                 msg = await interaction.channel.send(embed=embed, view=view)
             except discord.Forbidden:
@@ -252,16 +255,10 @@ class GiveawayCog(commands.Cog):
             )
         except Exception as e:
             print(f"[giveaway] erreur: {e}", flush=True)
-            if interaction.response.is_done():
-                await interaction.followup.send(
-                    f"Erreur giveaway: `{e}`",
-                    ephemeral=True,
-                )
-            else:
-                await interaction.response.send_message(
-                    f"Erreur giveaway: `{e}`",
-                    ephemeral=True,
-                )
+            await interaction.followup.send(
+                f"Erreur giveaway: `{e}`",
+                ephemeral=True,
+            )
 
     @app_commands.command(
         name="win",

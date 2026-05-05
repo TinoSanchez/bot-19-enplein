@@ -1152,22 +1152,11 @@ class Bot19(commands.Bot):
         """Bloque toutes les commandes slash hors rôles autorisés."""
         try:
             user = interaction.user
-            member: Optional[discord.Member] = None
-            if isinstance(user, discord.Member):
-                member = user
-            elif interaction.guild is not None:
-                member = interaction.guild.get_member(user.id)
-                if member is None:
-                    member = await interaction.guild.fetch_member(user.id)
+            member: Optional[discord.Member] = user if isinstance(user, discord.Member) else None
 
             if member is None:
-                if interaction.response.is_done():
-                    await interaction.followup.send("Commande indisponible ici.", ephemeral=True)
-                else:
-                    await interaction.response.send_message(
-                        "Commande indisponible ici.", ephemeral=True
-                    )
-                return False
+                # Ne jamais bloquer l'ACK d'une commande sur un fetch Discord.
+                return True
 
             user_role_ids = {int(r.id) for r in member.roles}
             is_owner = bool(interaction.guild and interaction.guild.owner_id == member.id)

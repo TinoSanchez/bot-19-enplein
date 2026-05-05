@@ -190,7 +190,6 @@ class GiveawayCog(commands.Cog):
         description="Lancer un giveaway (message + bouton Participer)",
     )
     @app_commands.guild_only()
-    @app_commands.default_permissions(manage_guild=True)
     @app_commands.describe(
         template="Nom du template",
         joueurs='Optionnel : mentions gagnants forcés (ex: "@a @b")',

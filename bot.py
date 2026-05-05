@@ -1141,6 +1141,7 @@ class RankCog(commands.Cog):
 class Bot19(commands.Bot):
     def __init__(self) -> None:
         super().__init__(command_prefix="!", intents=intents, help_command=None)
+        self._guild_sync_done = False
 
     async def setup_hook(self) -> None:
         await self.add_cog(AffiCog(self))
@@ -1161,6 +1162,13 @@ async def main() -> None:
 
     @bot.event
     async def on_ready() -> None:
+        if not bot._guild_sync_done:
+            for g in bot.guilds:
+                try:
+                    await bot.tree.sync(guild=g)
+                except discord.HTTPException:
+                    pass
+            bot._guild_sync_done = True
         print(f"Connecté en tant que {bot.user} ({bot.user.id if bot.user else '?'})")
 
     async with bot:

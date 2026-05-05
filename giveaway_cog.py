@@ -50,12 +50,7 @@ def build_giveaway_view(giveaway_id: str) -> discord.ui.View:
 
 
 class GiveawayCog(commands.Cog):
-    """Slash `/giveaway creer` + boutons persistants."""
-
-    giveaway = app_commands.Group(
-        name="giveaway",
-        description="Giveaways : bouton Participer, tirage automatique",
-    )
+    """Slash `/giveaway` + boutons persistants."""
 
     def __init__(self, bot: commands.Bot, db_path: Path) -> None:
         self.bot = bot
@@ -162,26 +157,26 @@ class GiveawayCog(commands.Cog):
         except (discord.NotFound, discord.Forbidden, discord.HTTPException):
             pass
 
-    @giveaway.command(
-        name="creer",
+    @app_commands.command(
+        name="giveaway",
         description="Lancer un giveaway (message + bouton Participer)",
     )
     @app_commands.guild_only()
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.describe(
-        template="Modèle de message",
-        montant="Montant à gagner (€)",
-        duree_minutes="Durée avant fin du giveaway (minutes)",
-        gagnants="Nombre de gagnants tirés au sort",
+        template="Nom du template",
+        nombre_de_personne="Nombre de gagnants",
+        argent="Montant à gagner (€)",
+        temps="Durée en minutes",
     )
     @app_commands.choices(template=_TEMPLATE_CHOICES)
-    async def giveaway_creer(
+    async def giveaway(
         self,
         interaction: discord.Interaction,
         template: str,
-        montant: app_commands.Range[int, 1, 50000],
-        duree_minutes: app_commands.Range[int, 1, 10080],
-        gagnants: app_commands.Range[int, 1, 25],
+        nombre_de_personne: app_commands.Range[int, 1, 25],
+        argent: app_commands.Range[int, 1, 50000],
+        temps: app_commands.Range[int, 1, 10080],
     ) -> None:
         if not interaction.channel or not isinstance(
             interaction.channel, discord.TextChannel
@@ -191,13 +186,13 @@ class GiveawayCog(commands.Cog):
             )
             return
 
-        ends_at = time.time() + float(duree_minutes) * 60.0
+        ends_at = time.time() + float(temps) * 60.0
         gid = uuid.uuid4().hex
 
         title, desc, color = build_embed_fields(
             template,
-            amount_eur=int(montant),
-            winner_count=int(gagnants),
+            amount_eur=int(argent),
+            winner_count=int(nombre_de_personne),
             ends_ts=int(ends_at),
         )
         embed = discord.Embed(title=title, description=desc, color=color)
@@ -219,8 +214,8 @@ class GiveawayCog(commands.Cog):
             channel_id=interaction.channel.id,
             message_id=msg.id,
             template_key=template,
-            amount_eur=int(montant),
-            winner_count=int(gagnants),
+            amount_eur=int(argent),
+            winner_count=int(nombre_de_personne),
             ends_at=ends_at,
         )
         self.bot.add_view(view)

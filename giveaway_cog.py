@@ -15,7 +15,12 @@ from discord import app_commands
 from discord.ext import commands
 
 from database import GiveawayDB
-from giveaway_templates import TEMPLATES, build_embed_fields, footer_participants
+from giveaway_templates import (
+    TEMPLATES,
+    build_embed_fields,
+    build_result_fields,
+    footer_participants,
+)
 
 _TEMPLATE_CHOICES = [
     app_commands.Choice(name=str(v["choice_name"]), value=k)
@@ -136,18 +141,24 @@ class GiveawayCog(commands.Cog):
             return
 
         if winners:
-            mentions = "\n".join(f"• <@{uid}>" for uid in winners)
-            body = f"**Lot : {rec.amount_eur} €**\n\n**Gagnant(s) :**\n{mentions}"
+            winner_mentions = [f"<@{uid}>" for uid in winners]
+            title, body, color = build_result_fields(
+                rec.template_key,
+                amount_eur=rec.amount_eur,
+                winner_mentions=winner_mentions,
+            )
         else:
+            title = "Giveaway terminé"
             body = (
                 f"**Lot : {rec.amount_eur} €**\n\n"
                 "Aucun participant — pas de tirage."
             )
+            color = 0x57F287
 
         embed = discord.Embed(
-            title="Giveaway terminé",
+            title=title,
             description=body,
-            color=0x57F287,
+            color=color,
         )
         try:
             ch = self.bot.get_channel(rec.channel_id)

@@ -5,38 +5,91 @@ Placeholders : montant €, nombre de gagnants, horaire de fin Discord.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
 # Clé → métadonnées affichées dans le sélecteur slash + rendu embed
 TEMPLATES: Dict[str, Dict[str, Any]] = {
-    "casino": {
-        "choice_name": "Casino 19ENPLEIN",
-        "title": "🎰 Giveaway · 19ENPLEIN CASINO",
+    "stream": {
+        "choice_name": "stream",
+        "title": "🎰 Giveaway Stream",
         "description": (
-            "### 💰 **{amount} €** à gagner\n\n"
-            "🏆 **{winners}** gagnant(s)\n"
-            "⏱️ Se termine : {ends_rel} ({ends_abs})\n\n"
+            "🏆 Giveaway **STREAM** en cours ! 🏆\n\n"
+            "💰 Gain : **{amount}$** cash\n"
+            "👥 Gagnant(s) : **{winners}**\n"
+            "⏱️ Fin : {ends_rel} ({ends_abs})\n\n"
             "Clique sur **Participer** pour t’inscrire au tirage."
         ),
         "color": 0xF9C80E,
+        "result_title": "🏆 AND THE WINNER IS ! 🏆",
+        "result_description": (
+            "🏆 AND THE WINNER IS {winner_line} 🏆\n"
+            "Félicitations au chanceux du jour sur le stream ! 🎰✨\n\n"
+            "💰 Gain : {amount}$ cash crédités immédiatement !\n\n"
+            "🔥 Statut : Que tu sois affilié ou non, la chance a tourné pour toi !\n\n"
+            "🤑 GG à toi ! On se retrouve demain pour le prochain tirage au sort quotidien sur le chat ! 🍒🔔💎"
+        ),
     },
-    "stream": {
-        "choice_name": "Live / Stream",
-        "title": "📺 Giveaway stream",
+    "lundi": {
+        "choice_name": "Lundi",
+        "title": "🎰 Giveaway du Lundi",
         "description": (
-            "**Lot : {amount} €** · **{winners}** gagnant(s)\n\n"
-            "Fin {ends_rel}\n\n"
-            "Bouton **Participer** ci-dessous 👇"
+            "🏆 Giveaway **LUNDI** en cours ! 🏆\n\n"
+            "💰 Cash total : **{amount}$**\n"
+            "👥 Gagnant(s) : **{winners}**\n"
+            "⏱️ Fin : {ends_rel}\n\n"
+            "Clique sur **Participer** pour entrer dans le tirage."
         ),
         "color": 0x00D4FF,
-    },
-    "minimal": {
-        "choice_name": "Simple",
-        "title": "Giveaway",
-        "description": (
-            "{amount} € · {winners} gagnant(s) · fin {ends_rel}"
+        "result_title": "🏆 LES GAGNANTS DU LUNDI ! 🏆",
+        "result_description": (
+            "🏆 LES GAGNANTS DU LUNDI SONT {winner_line} !!! 🏆\n"
+            "Le tirage au sort vient de rendre son verdict pour le giveaway de {amount}$ ! 🎰✨\n\n"
+            "💰 Le Cash : Félicitations aux vainqueurs !\n\n"
+            "✅ Condition validée : Bravo à nos affiliés KYC 2 pour leur victoire !\n\n"
+            "🤑 GG AUX GAGNANTS ! 💸🔥\n"
+            "Rendez-vous lundi prochain pour remettre ça ! 🍒🔔💎🎰"
         ),
-        "color": 0x2B2D31,
+    },
+    "vendredi": {
+        "choice_name": "vendredi",
+        "title": "🎰 Giveaway du Vendredi",
+        "description": (
+            "🏆 Giveaway **VENDREDI** en cours ! 🏆\n\n"
+            "💰 Cash total : **{amount}$**\n"
+            "👥 Gagnant(s) : **{winners}**\n"
+            "⏱️ Fin : {ends_rel}\n\n"
+            "Clique sur **Participer** pour entrer dans le tirage."
+        ),
+        "color": 0xF38BA8,
+        "result_title": "🏆 LES GAGNANTS DU VENDREDI ! 🏆",
+        "result_description": (
+            "🏆 LES GAGNANTS DU VENDREDI SONT {winner_line} ! 🏆\n"
+            "Le tirage au sort vient de désigner les chanceux de la semaine pour le giveaway de {amount}$ ! 🎰✨\n\n"
+            "💰 Le Butin : Félicitations aux vainqueurs !\n\n"
+            "✅ La Condition : Bravo à nos affiliés KYC 2 qui ont été tirés au sort !\n\n"
+            "🤑 GG AUX GAGNANTS ! QUEL BEAU DÉBUT DE WEEK-END ! 💸🔥\n"
+            "Rendez-vous vendredi prochain pour remettre ça ! 🍒🔔💎🎰"
+        ),
+    },
+    "mensuel": {
+        "choice_name": "mensuel",
+        "title": "🎰 Giveaway Mensuel",
+        "description": (
+            "🏆 Giveaway **MENSUEL** en cours ! 🏆\n\n"
+            "💰 Cagnotte : **{amount}$**\n"
+            "👥 Classement gagnant : **{winners}** place(s)\n"
+            "⏱️ Fin : {ends_rel}\n\n"
+            "Clique sur **Participer** pour être dans le tirage final."
+        ),
+        "color": 0xA6E3A1,
+        "result_title": "🏆 LES CHAMPIONS DU MOIS ! 🏆",
+        "result_description": (
+            "🏆 LES CHAMPIONS DU MOIS ! 🏆\n"
+            "Le classement final du Giveaway Mensuel est tombé ! La fidélité sur le stream a payé ! 🎰✨\n\n"
+            "Voici nos grands vainqueurs :\n{monthly_lines}\n\n"
+            "✨ Bravo à tous, affiliés et non-affiliés, pour votre présence active !\n\n"
+            "🤑 GG AUX GAGNANTS ! On remet les compteurs à zéro pour le mois prochain, alors soyez prêts à taper les mots clés sur le chat ! 🎰🍒🔔🤑"
+        ),
     },
 }
 
@@ -65,7 +118,7 @@ def build_embed_fields(
     ends_ts: int,
 ) -> Tuple[str, str, int]:
     """Retourne (title, description, color) pour discord.Embed."""
-    t = TEMPLATES.get(template_key) or TEMPLATES["casino"]
+    t = TEMPLATES.get(template_key) or TEMPLATES["stream"]
     ends_rel, ends_abs = _ends_tags(ends_ts)
     desc = str(t["description"]).format(
         amount=amount_eur,
@@ -74,6 +127,32 @@ def build_embed_fields(
         ends_abs=ends_abs,
     )
     return str(t["title"]), desc, int(t["color"])
+
+
+def build_result_fields(
+    template_key: str,
+    *,
+    amount_eur: int,
+    winner_mentions: List[str],
+) -> Tuple[str, str, int]:
+    t = TEMPLATES.get(template_key) or TEMPLATES["stream"]
+    winner_line = ", ".join(winner_mentions) if winner_mentions else "personne"
+    monthly_prizes = [50, 25, 15]
+    monthly_medals = ["🥇", "🥈", "🥉"]
+    monthly_lines = []
+    for i, mention in enumerate(winner_mentions[:3]):
+        prize = monthly_prizes[i]
+        medal = monthly_medals[i]
+        monthly_lines.append(f"{medal} Place {i + 1} : {mention} Repart avec {prize}$ !")
+    if not monthly_lines:
+        monthly_lines.append("Aucun participant ce mois-ci.")
+    desc = str(t.get("result_description", "Gagnant(s) : {winner_line}")).format(
+        amount=amount_eur,
+        winner_line=winner_line,
+        monthly_lines="\n\n".join(monthly_lines),
+    )
+    title = str(t.get("result_title", "Giveaway terminé"))
+    return title, desc, int(t["color"])
 
 
 def footer_participants(n: int) -> str:

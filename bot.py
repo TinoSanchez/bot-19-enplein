@@ -1158,9 +1158,18 @@ class Bot19(commands.Bot):
         await self.add_cog(RankCog(self))
         await self.add_cog(GiveawayCog(self, DB_PATH))
         if GUILD_ID:
-            await self.tree.sync(guild=discord.Object(id=GUILD_ID))
+            try:
+                synced = await self.tree.sync(guild=discord.Object(id=GUILD_ID))
+                print(f"[sync setup_hook] guild={GUILD_ID} cmds={len(synced)}", flush=True)
+            except discord.HTTPException as e:
+                print(f"[sync setup_hook] erreur guild={GUILD_ID}: {e}", flush=True)
         else:
-            await self.tree.sync()
+            # Sync global (peut prendre du temps à apparaître côté Discord).
+            try:
+                synced = await self.tree.sync()
+                print(f"[sync setup_hook] global cmds={len(synced)}", flush=True)
+            except discord.HTTPException as e:
+                print(f"[sync setup_hook] erreur global: {e}", flush=True)
 
 
 async def main() -> None:
@@ -1174,9 +1183,10 @@ async def main() -> None:
         if not bot._guild_sync_done:
             for g in bot.guilds:
                 try:
-                    await bot.tree.sync(guild=g)
-                except discord.HTTPException:
-                    pass
+                    synced = await bot.tree.sync(guild=g)
+                    print(f"[sync on_ready] guild={g.id} cmds={len(synced)}", flush=True)
+                except discord.HTTPException as e:
+                    print(f"[sync on_ready] erreur guild={g.id}: {e}", flush=True)
             bot._guild_sync_done = True
         print(f"Connecté en tant que {bot.user} ({bot.user.id if bot.user else '?'})")
 

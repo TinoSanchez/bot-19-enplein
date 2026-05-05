@@ -1149,45 +1149,8 @@ class Bot19(commands.Bot):
         self._guild_sync_done = False
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Bloque toutes les commandes slash hors rôles autorisés."""
-        try:
-            user = interaction.user
-            member: Optional[discord.Member] = user if isinstance(user, discord.Member) else None
-
-            if member is None:
-                # Ne jamais bloquer l'ACK d'une commande sur un fetch Discord.
-                return True
-
-            user_role_ids = {int(r.id) for r in member.roles}
-            is_owner = bool(interaction.guild and interaction.guild.owner_id == member.id)
-            is_admin = bool(member.guild_permissions.administrator)
-            if is_owner or is_admin or user_role_ids.intersection(_ALLOWED_ROLE_IDS):
-                return True
-
-            if interaction.response.is_done():
-                await interaction.followup.send(
-                    "Tu n'as pas la permission d'utiliser les commandes du bot.",
-                    ephemeral=True,
-                )
-            else:
-                await interaction.response.send_message(
-                    "Tu n'as pas la permission d'utiliser les commandes du bot.",
-                    ephemeral=True,
-                )
-            return False
-        except Exception as e:
-            print(f"[interaction_check] erreur: {e}", flush=True)
-            if interaction.response.is_done():
-                await interaction.followup.send(
-                    f"Erreur permission: `{e}`",
-                    ephemeral=True,
-                )
-            else:
-                await interaction.response.send_message(
-                    f"Erreur permission: `{e}`",
-                    ephemeral=True,
-                )
-            return False
+        """Désactivé temporairement pour éviter tout blocage d'ACK slash."""
+        return True
 
     async def setup_hook(self) -> None:
         await self.add_cog(AffiCog(self))

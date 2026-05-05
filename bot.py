@@ -1163,7 +1163,9 @@ class Bot19(commands.Bot):
             return False
 
         user_role_ids = {int(r.id) for r in user.roles}
-        if user_role_ids.intersection(_ALLOWED_ROLE_IDS):
+        is_owner = bool(interaction.guild and interaction.guild.owner_id == user.id)
+        is_admin = bool(user.guild_permissions.administrator)
+        if is_owner or is_admin or user_role_ids.intersection(_ALLOWED_ROLE_IDS):
             return True
 
         if interaction.response.is_done():

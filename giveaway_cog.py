@@ -6,9 +6,11 @@ from __future__ import annotations
 
 import asyncio
 import random
+import re
 import time
 import uuid
 from pathlib import Path
+from typing import List, Optional
 
 import discord
 from discord import app_commands
@@ -75,6 +77,14 @@ class GiveawayCog(commands.Cog):
         await asyncio.sleep(delay)
         await self._finalize_giveaway(gid)
 
+    @staticmethod
+    def _parse_mentioned_user_ids(raw: str) -> List[int]:
+        """Extrait les IDs depuis des mentions Discord: <@123> ou <@!123>."""
+        if not raw:
+            return []
+        ids = re.findall(r"<@!?(\d+)>", raw)
+        return [int(x) for x in ids]
+
     def _running_embed(self, rec) -> discord.Embed:
         title, desc, color = build_embed_fields(
             rec.template_key,
@@ -128,15 +138,21 @@ class GiveawayCog(commands.Cog):
                 "Tu participes déjà à ce giveaway.", ephemeral=True
             )
 
-    async def _finalize_giveaway(self, gid: str) -> None:
+    async def _finalize_giveaway(
+        self, gid: str, forced_winners: Optional[List[int]] = None
+    ) -> None:
         rec = self.db.get(gid)
         if not rec or rec.ended:
             return
-        parts = list(rec.participants)
         winners: list[int] = []
-        if parts:
-            k = min(rec.winner_count, len(parts))
-            winners = random.sample(parts, k=k)
+        if forced_winners:
+            uniq = list(dict.fromkeys(forced_winners))
+            winners = uniq[: rec.winner_count]
+        else:
+            parts = list(rec.participants)
+            if parts:
+                k = min(rec.winner_count, len(parts))
+                winners = random.sample(parts, k=k)
 
         if not self.db.mark_ended(gid):
             return
@@ -177,12 +193,14 @@ class GiveawayCog(commands.Cog):
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.describe(
         template="Nom du template",
+        joueurs='Optionnel : mentions gagnants forcés (ex: "@a @b")',
     )
     @app_commands.choices(template=_TEMPLATE_CHOICES)
     async def giveaway(
         self,
         interaction: discord.Interaction,
         template: str,
+        joueurs: Optional[str] = None,
     ) -> None:
         if not interaction.channel or not isinstance(
             interaction.channel, discord.TextChannel
@@ -227,9 +245,14 @@ class GiveawayCog(commands.Cog):
         )
         self.bot.add_view(view)
 
+        forced_winners = self._parse_mentioned_user_ids(joueurs or "")
         delay = ends_at - time.time()
-        if delay > 0:
+        if forced_winners:
+            asyncio.create_task(self._finalize_giveaway(gid, forced_winners=forced_winners))
+        elif delay > 0:
             asyncio.create_task(self._sleep_and_finalize(gid, delay))
+        else:
+            asyncio.create_task(self._finalize_giveaway(gid))
 
         await interaction.followup.send(
             f"Giveaway publié · ID interne `{gid[:8]}…`",

@@ -13,7 +13,7 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "choice_name": "stream",
         "default_amount": 5,
         "default_winners": 1,
-        "default_duration_minutes": 1440,
+        "default_duration_minutes": 0,
         "title": "🎰 Giveaway Stream",
         "description": (
             "🏆 Giveaway **STREAM** en cours ! 🏆\n\n"
@@ -36,7 +36,7 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "choice_name": "Lundi",
         "default_amount": 50,
         "default_winners": 2,
-        "default_duration_minutes": 10080,
+        "default_duration_minutes": 0,
         "title": "🎰 Giveaway du Lundi",
         "description": (
             "🏆 Giveaway **LUNDI** en cours ! 🏆\n\n"
@@ -60,7 +60,7 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "choice_name": "vendredi",
         "default_amount": 75,
         "default_winners": 3,
-        "default_duration_minutes": 10080,
+        "default_duration_minutes": 0,
         "title": "🎰 Giveaway du Vendredi",
         "description": (
             "🏆 Giveaway **VENDREDI** en cours ! 🏆\n\n"
@@ -84,7 +84,7 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "choice_name": "mensuel",
         "default_amount": 90,
         "default_winners": 3,
-        "default_duration_minutes": 43200,
+        "default_duration_minutes": 0,
         "title": "🎰 Giveaway Mensuel",
         "description": (
             "🏆 Giveaway **MENSUEL** en cours ! 🏆\n\n"

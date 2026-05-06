@@ -1230,10 +1230,17 @@ class SessionCog(commands.Cog):
         perms = member.guild_permissions
         return bool(perms.administrator or perms.manage_guild)
 
-    @staticmethod
-    def _session_channel(guild: discord.Guild) -> Optional[discord.TextChannel]:
+    async def _session_channel(
+        self, guild: discord.Guild
+    ) -> Optional[discord.TextChannel]:
         ch = guild.get_channel(_SESSION_CHANNEL_ID)
-        return ch if isinstance(ch, discord.TextChannel) else None
+        if isinstance(ch, discord.TextChannel):
+            return ch
+        try:
+            fetched = await guild.fetch_channel(_SESSION_CHANNEL_ID)
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+            return None
+        return fetched if isinstance(fetched, discord.TextChannel) else None
 
     async def _configure_channel_for_session(
         self, channel: discord.TextChannel, enabled: bool
@@ -1286,7 +1293,7 @@ class SessionCog(commands.Cog):
         if interaction.guild is None:
             await interaction.edit_original_response(content="Commande disponible uniquement en serveur.")
             return
-        channel = self._session_channel(interaction.guild)
+        channel = await self._session_channel(interaction.guild)
         if channel is None:
             await interaction.edit_original_response(
                 content=f"Salon introuvable: `{_SESSION_CHANNEL_ID}`"
@@ -1310,6 +1317,12 @@ class SessionCog(commands.Cog):
                 content=f"Impossible de démarrer la session: `{e}`"
             )
             return
+        except Exception as e:
+            self.active = False
+            await interaction.edit_original_response(
+                content=f"Erreur inattendue au démarrage: `{e}`"
+            )
+            return
         await interaction.edit_original_response(
             content=(
                 f"Session démarrée dans {channel.mention}. Les membres du rôle "
@@ -1330,7 +1343,7 @@ class SessionCog(commands.Cog):
         if interaction.guild is None:
             await interaction.edit_original_response(content="Commande disponible uniquement en serveur.")
             return
-        channel = self._session_channel(interaction.guild)
+        channel = await self._session_channel(interaction.guild)
         if channel is None:
             await interaction.edit_original_response(
                 content=f"Salon introuvable: `{_SESSION_CHANNEL_ID}`"
@@ -1366,6 +1379,11 @@ class SessionCog(commands.Cog):
         except (discord.Forbidden, discord.HTTPException) as e:
             await interaction.edit_original_response(
                 content=f"Session stoppée mais renommage/permissions impossible: `{e}`"
+            )
+            return
+        except Exception as e:
+            await interaction.edit_original_response(
+                content=f"Erreur inattendue à l'arrêt: `{e}`"
             )
             return
         await interaction.edit_original_response(

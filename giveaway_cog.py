@@ -33,9 +33,7 @@ _TEMPLATE_CHOICES = [
 ]
 _BANNER_FILENAME = "giveaway_banner_12a8.png"
 _DEFAULT_MONTHLY_CHANNEL_ID = 1500459538275504188
-_FORCED_BANNER_PATH = Path(
-    r"C:\Users\mathi\Desktop\bot 19\bot en plein banniere.png"
-)
+_FORCED_BANNER_PATH = Path(__file__).resolve().parent / "bot en plein banniere.png"
 
 
 class GiveawayParticipateButton(discord.ui.Button):

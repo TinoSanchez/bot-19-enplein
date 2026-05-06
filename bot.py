@@ -1281,35 +1281,40 @@ class SessionCog(commands.Cog):
                 "Démarrage de la session en cours...", ephemeral=True
             )
         if not self._is_admin(interaction.user if isinstance(interaction.user, discord.Member) else None):
-            await interaction.followup.send(
-                "Commande réservée aux admins.", ephemeral=True
-            )
+            await interaction.edit_original_response(content="Commande réservée aux admins.")
             return
         if interaction.guild is None:
-            await interaction.followup.send(
-                "Commande disponible uniquement en serveur.", ephemeral=True
-            )
+            await interaction.edit_original_response(content="Commande disponible uniquement en serveur.")
             return
         channel = self._session_channel(interaction.guild)
         if channel is None:
-            await interaction.followup.send(
-                f"Salon introuvable: `{_SESSION_CHANNEL_ID}`", ephemeral=True
+            await interaction.edit_original_response(
+                content=f"Salon introuvable: `{_SESSION_CHANNEL_ID}`"
             )
             return
         self.used_users.clear()
         self.active = True
         try:
-            await self._configure_channel_for_session(channel, enabled=True)
-        except (discord.Forbidden, discord.HTTPException) as e:
+            await asyncio.wait_for(
+                self._configure_channel_for_session(channel, enabled=True), timeout=20
+            )
+        except asyncio.TimeoutError:
             self.active = False
-            await interaction.followup.send(
-                f"Impossible de démarrer la session: `{e}`",
-                ephemeral=True,
+            await interaction.edit_original_response(
+                content="Timeout Discord pendant la configuration du salon."
             )
             return
-        await interaction.followup.send(
-            f"Session démarrée dans {channel.mention}. Les membres du rôle <@&{_SESSION_ROLE_ID}> peuvent envoyer 1 message chacun.",
-            ephemeral=True,
+        except (discord.Forbidden, discord.HTTPException) as e:
+            self.active = False
+            await interaction.edit_original_response(
+                content=f"Impossible de démarrer la session: `{e}`"
+            )
+            return
+        await interaction.edit_original_response(
+            content=(
+                f"Session démarrée dans {channel.mention}. Les membres du rôle "
+                f"<@&{_SESSION_ROLE_ID}> peuvent envoyer 1 message chacun."
+            )
         )
 
     @session.command(name="stop", description="Stopper la session call et nettoyer")
@@ -1320,19 +1325,15 @@ class SessionCog(commands.Cog):
                 "Arrêt de la session en cours...", ephemeral=True
             )
         if not self._is_admin(interaction.user if isinstance(interaction.user, discord.Member) else None):
-            await interaction.followup.send(
-                "Commande réservée aux admins.", ephemeral=True
-            )
+            await interaction.edit_original_response(content="Commande réservée aux admins.")
             return
         if interaction.guild is None:
-            await interaction.followup.send(
-                "Commande disponible uniquement en serveur.", ephemeral=True
-            )
+            await interaction.edit_original_response(content="Commande disponible uniquement en serveur.")
             return
         channel = self._session_channel(interaction.guild)
         if channel is None:
-            await interaction.followup.send(
-                f"Salon introuvable: `{_SESSION_CHANNEL_ID}`", ephemeral=True
+            await interaction.edit_original_response(
+                content=f"Salon introuvable: `{_SESSION_CHANNEL_ID}`"
             )
             return
 
@@ -1341,25 +1342,34 @@ class SessionCog(commands.Cog):
 
         # Purge tous les messages visibles du salon.
         try:
-            await channel.purge(limit=None)
+            await asyncio.wait_for(channel.purge(limit=None), timeout=30)
+        except asyncio.TimeoutError:
+            await interaction.edit_original_response(
+                content="Timeout Discord pendant la suppression des messages du salon."
+            )
+            return
         except (discord.Forbidden, discord.HTTPException) as e:
-            await interaction.followup.send(
-                f"Je n'ai pas pu supprimer les messages du salon: `{e}`",
-                ephemeral=True,
+            await interaction.edit_original_response(
+                content=f"Je n'ai pas pu supprimer les messages du salon: `{e}`"
             )
             return
 
         try:
-            await self._configure_channel_for_session(channel, enabled=False)
-        except (discord.Forbidden, discord.HTTPException) as e:
-            await interaction.followup.send(
-                f"Session stoppée mais renommage/permissions impossible: `{e}`",
-                ephemeral=True,
+            await asyncio.wait_for(
+                self._configure_channel_for_session(channel, enabled=False), timeout=20
+            )
+        except asyncio.TimeoutError:
+            await interaction.edit_original_response(
+                content="Timeout Discord pendant le renommage/permissions du salon."
             )
             return
-        await interaction.followup.send(
-            f"Session arrêtée, salon nettoyé et renommé en `{_SESSION_NAME_OFF}`.",
-            ephemeral=True,
+        except (discord.Forbidden, discord.HTTPException) as e:
+            await interaction.edit_original_response(
+                content=f"Session stoppée mais renommage/permissions impossible: `{e}`"
+            )
+            return
+        await interaction.edit_original_response(
+            content=f"Session arrêtée, salon nettoyé et renommé en `{_SESSION_NAME_OFF}`."
         )
 
     @app_commands.command(name="call", description="Call une machine pendant la session")

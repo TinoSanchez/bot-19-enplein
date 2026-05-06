@@ -1299,16 +1299,7 @@ class SessionCog(commands.Cog):
         self.used_users.clear()
         self.active = True
         try:
-            await asyncio.wait_for(
-                self._configure_channel_for_session(channel, enabled=True), timeout=12
-            )
-        except TimeoutError:
-            self.active = False
-            await interaction.followup.send(
-                "Timeout Discord pendant la configuration du salon. Réessaie dans quelques secondes.",
-                ephemeral=True,
-            )
-            return
+            await self._configure_channel_for_session(channel, enabled=True)
         except (discord.Forbidden, discord.HTTPException) as e:
             self.active = False
             await interaction.followup.send(
@@ -1350,13 +1341,7 @@ class SessionCog(commands.Cog):
 
         # Purge tous les messages visibles du salon.
         try:
-            await asyncio.wait_for(channel.purge(limit=None), timeout=20)
-        except TimeoutError:
-            await interaction.followup.send(
-                "Timeout Discord pendant la suppression des messages. Réessaie.",
-                ephemeral=True,
-            )
-            return
+            await channel.purge(limit=None)
         except (discord.Forbidden, discord.HTTPException) as e:
             await interaction.followup.send(
                 f"Je n'ai pas pu supprimer les messages du salon: `{e}`",
@@ -1365,15 +1350,7 @@ class SessionCog(commands.Cog):
             return
 
         try:
-            await asyncio.wait_for(
-                self._configure_channel_for_session(channel, enabled=False), timeout=12
-            )
-        except TimeoutError:
-            await interaction.followup.send(
-                "Timeout Discord pendant le renommage/permissions du salon.",
-                ephemeral=True,
-            )
-            return
+            await self._configure_channel_for_session(channel, enabled=False)
         except (discord.Forbidden, discord.HTTPException) as e:
             await interaction.followup.send(
                 f"Session stoppée mais renommage/permissions impossible: `{e}`",

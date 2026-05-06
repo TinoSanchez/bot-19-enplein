@@ -154,6 +154,31 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
             "Rendez-vous dimanche prochain pour le prochain tournoi ! 🍒🔔💎🎰"
         ),
     },
+    "BH": {
+        "choice_name": "BH",
+        "default_amount": 0,
+        "default_winners": 1,
+        "default_duration_minutes": 0,
+        "title": "🎰 Bonus Hunt",
+        "description": (
+            "🏆 Tirage **BONUS HUNT** en cours ! 🏆\n\n"
+            "👥 {winner_label} : **{winners}**\n"
+            "⏱️ Fin : {ends_rel}\n\n"
+            "Clique sur **Participer** pour entrer dans le tirage."
+        ),
+        "color": 0x8E44AD,
+        "result_title": "🏆 RÉSULTAT DU TIRAGE BONUS HUNT ! 🏆",
+        "result_description": (
+            "🏆 RÉSULTAT DU TIRAGE BONUS HUNT ! 🏆\n"
+            "🏆 {winner_line} !!! 🏆\n"
+            "Le tirage au sort vient de designer le grand gagnant pour le Bonus hunt de fin de mois ! 🎰✨\n\n"
+            "🗣️ La Mission : Félicitations ! Tu es la personne sélectionnée pour venir farmer un bonus hunt pour la communauté. Rendez-vous en Stream pour l'ouverture du hunt ! 🎥🔥\n\n"
+            "💸 Le Cash potentiel : Si le hunt se termine en profit, tu remporteras 20% du bénéfice total ! À toi de trouver la max win ! 🍀💰\n\n"
+            "✅ Condition validée : Bravo à notre affilié KYC 2 pour sa sélection !\n\n"
+            "🤑 GG AU GAGNANT ! 💸🔥\n"
+            "Bonne chance pour le hunt, on croise les doigts pour un gros profit ! 🍒🔔💎🎰"
+        ),
+    },
 }
 
 

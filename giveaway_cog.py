@@ -11,6 +11,7 @@ import random
 import re
 import time
 import uuid
+from io import BytesIO
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -33,6 +34,7 @@ _TEMPLATE_CHOICES = [
 ]
 _BANNER_FILENAME = "giveaway_banner_bot_en_plein.png"
 _DEFAULT_MONTHLY_CHANNEL_ID = 1500459538275504188
+_MONTHLY_SNAPSHOT_USER_ID = 791390134976905216
 _FORCED_BANNER_PATH = Path(__file__).resolve().parent / "bot en plein.png"
 
 
@@ -144,6 +146,39 @@ class GiveawayCog(commands.Cog):
         # On impose ce salon pour la publication mensuelle.
         return None
 
+    async def _send_points_snapshot_before_reset(
+        self, month_label: str, rows: List[PointEntry]
+    ) -> None:
+        """Envoie une copie de la liste points avant reset à l'utilisateur cible."""
+        ordered = sorted(rows, key=lambda r: (-int(r.total), str(r.display_name).lower()))
+        lines: List[str] = [f"Snapshot /point avant reset mensuel ({month_label})", ""]
+        if not ordered:
+            lines.append("Aucun joueur dans la liste.")
+        else:
+            for i, row in enumerate(ordered, start=1):
+                lines.append(
+                    f"{i:02d}. {row.display_name} | total={row.total} | bonus={row.points_rajouter} | key={row.player_key}"
+                )
+        payload = "\n".join(lines)
+        try:
+            user = self.bot.get_user(_MONTHLY_SNAPSHOT_USER_ID)
+            if user is None:
+                user = await self.bot.fetch_user(_MONTHLY_SNAPSHOT_USER_ID)
+            file_obj = discord.File(
+                BytesIO(payload.encode("utf-8")),
+                filename=f"point_snapshot_{month_label}.txt",
+            )
+            await user.send(
+                content=f"Copie de la liste /point avant reset mensuel ({month_label}).",
+                file=file_obj,
+            )
+            print(
+                f"[monthly] snapshot /point envoyé à {_MONTHLY_SNAPSHOT_USER_ID} ({month_label})",
+                flush=True,
+            )
+        except Exception as e:
+            print(f"[monthly] impossible d'envoyer le snapshot: {e}", flush=True)
+
     async def _publish_monthly_points_result(
         self, month_label: str, top_rows: List[PointEntry]
     ) -> None:
@@ -225,8 +260,12 @@ class GiveawayCog(commands.Cog):
                 if today.day == 1:
                     last_processed = self.point_db.get_meta("monthly_points_last_processed")
                     if last_processed != previous_month:
+                        snapshot_rows = self.point_db.list_all()
                         top = [row for row in self.point_db.list_top_by_total(limit=3) if row.total > 0]
                         await self._publish_monthly_points_result(previous_month, top)
+                        await self._send_points_snapshot_before_reset(
+                            previous_month, snapshot_rows
+                        )
                         self.point_db.reset_all_totals()
                         self.point_db.set_meta("monthly_points_last_processed", previous_month)
                         self.point_db.set_meta("monthly_points_last_reset_month", current_month)

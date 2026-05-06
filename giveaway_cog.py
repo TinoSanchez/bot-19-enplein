@@ -35,6 +35,7 @@ _TEMPLATE_CHOICES = [
 _BANNER_FILENAME = "giveaway_banner_bot_en_plein.png"
 _DEFAULT_MONTHLY_CHANNEL_ID = 1500459538275504188
 _MONTHLY_SNAPSHOT_USER_ID = 791390134976905216
+_MONTHLY_SNAPSHOT_CHANNEL_ID = 1501619316951486625
 _FORCED_BANNER_PATH = Path(__file__).resolve().parent / "bot en plein.png"
 
 
@@ -149,7 +150,7 @@ class GiveawayCog(commands.Cog):
     async def _send_points_snapshot_before_reset(
         self, month_label: str, rows: List[PointEntry]
     ) -> None:
-        """Envoie une copie de la liste points avant reset à l'utilisateur cible."""
+        """Envoie une copie de la liste points avant reset (DM + salon cible)."""
         ordered = sorted(rows, key=lambda r: (-int(r.total), str(r.display_name).lower()))
         lines: List[str] = [f"Snapshot /point avant reset mensuel ({month_label})", ""]
         if not ordered:
@@ -178,6 +179,29 @@ class GiveawayCog(commands.Cog):
             )
         except Exception as e:
             print(f"[monthly] impossible d'envoyer le snapshot: {e}", flush=True)
+
+        try:
+            ch = self.bot.get_channel(_MONTHLY_SNAPSHOT_CHANNEL_ID)
+            if isinstance(ch, discord.TextChannel):
+                file_obj = discord.File(
+                    BytesIO(payload.encode("utf-8")),
+                    filename=f"point_snapshot_{month_label}.txt",
+                )
+                await ch.send(
+                    content=f"Copie de la liste /point avant reset mensuel ({month_label}).",
+                    file=file_obj,
+                )
+                print(
+                    f"[monthly] snapshot /point envoyé dans le salon {_MONTHLY_SNAPSHOT_CHANNEL_ID} ({month_label})",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"[monthly] salon snapshot introuvable: {_MONTHLY_SNAPSHOT_CHANNEL_ID}",
+                    flush=True,
+                )
+        except Exception as e:
+            print(f"[monthly] impossible d'envoyer le snapshot en salon: {e}", flush=True)
 
     async def _publish_monthly_points_result(
         self, month_label: str, top_rows: List[PointEntry]

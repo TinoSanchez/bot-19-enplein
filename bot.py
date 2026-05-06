@@ -1299,8 +1299,16 @@ class Bot19(commands.Bot):
         self._rumble_task: Optional[asyncio.Task] = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Désactivé temporairement pour éviter tout blocage d'ACK slash."""
-        return True
+        """Autorise les commandes uniquement aux rôles whitelistés ou admin."""
+        if interaction.guild is None:
+            return False
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        if member is None:
+            return False
+        if member.guild_permissions.administrator:
+            return True
+        role_ids = {r.id for r in member.roles}
+        return bool(role_ids.intersection(_ALLOWED_ROLE_IDS))
 
     async def _sync_for_guild(self, guild_id: int) -> None:
         """Copie les commandes globales vers la guilde puis synchronise."""

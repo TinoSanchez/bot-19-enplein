@@ -1415,7 +1415,14 @@ class SessionCog(commands.Cog):
         )
         embed.add_field(name="Provider", value=slot["provider"], inline=True)
         if slot.get("image"):
-            embed.set_thumbnail(url=slot["image"])
+            embed.set_image(url=slot["image"])
+        if _RUMBLE_BANNER_PATH.is_file():
+            embed.set_thumbnail(url="attachment://call_banner.png")
+            await interaction.response.send_message(
+                embed=embed,
+                file=discord.File(_RUMBLE_BANNER_PATH, filename="call_banner.png"),
+            )
+            return
         await interaction.response.send_message(embed=embed)
 
     @call.autocomplete("machine")

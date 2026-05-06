@@ -1197,19 +1197,21 @@ class SessionCog(commands.Cog):
     @session.command(name="start", description="Démarrer la session call")
     @app_commands.guild_only()
     async def session_start(self, interaction: discord.Interaction) -> None:
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True, thinking=False)
         if not self._is_admin(interaction.user if isinstance(interaction.user, discord.Member) else None):
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Commande réservée aux admins.", ephemeral=True
             )
             return
         if interaction.guild is None:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Commande disponible uniquement en serveur.", ephemeral=True
             )
             return
         channel = self._session_channel(interaction.guild)
         if channel is None:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"Salon introuvable: `{_SESSION_CHANNEL_ID}`", ephemeral=True
             )
             return
@@ -1219,12 +1221,12 @@ class SessionCog(commands.Cog):
             await self._configure_channel_for_session(channel, enabled=True)
         except (discord.Forbidden, discord.HTTPException) as e:
             self.active = False
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"Impossible de démarrer la session: `{e}`",
                 ephemeral=True,
             )
             return
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"Session démarrée dans {channel.mention}. Les membres du rôle <@&{_SESSION_ROLE_ID}> peuvent envoyer 1 message chacun.",
             ephemeral=True,
         )

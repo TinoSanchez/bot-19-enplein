@@ -1244,7 +1244,7 @@ class Bot19(commands.Bot):
         e.add_field(name="Lien", value=live_url, inline=False)
         e.set_footer(text="19ENPLEIN CASINO · Notification live")
         if _RUMBLE_BANNER_PATH.is_file():
-            e.set_image(url="attachment://rumble_live_banner.png")
+            e.set_thumbnail(url="attachment://rumble_live_banner.png")
         return e
 
     async def _send_rumble_announcement(

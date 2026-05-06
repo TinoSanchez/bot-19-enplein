@@ -222,6 +222,14 @@ class PointDB:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS point_meta (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+                """
+            )
             conn.commit()
             conn.close()
 
@@ -323,6 +331,73 @@ class PointDB:
             )
             for r in rows
         ]
+
+    def list_top_by_total(self, limit: int = 3) -> List[PointEntry]:
+        n = max(1, int(limit))
+        with self._lock:
+            conn = self._connect()
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT player_key, display_name, points_rajouter, total
+                    FROM point_players
+                    ORDER BY total DESC, display_name COLLATE NOCASE ASC
+                    LIMIT ?
+                    """,
+                    (n,),
+                ).fetchall()
+            finally:
+                conn.close()
+        return [
+            PointEntry(
+                player_key=r["player_key"],
+                display_name=r["display_name"],
+                points_rajouter=int(r["points_rajouter"]),
+                total=int(r["total"]),
+            )
+            for r in rows
+        ]
+
+    def reset_all_totals(self) -> int:
+        """Remet `total` à 0 pour tous les joueurs; retourne le nombre de lignes touchées."""
+        with self._lock:
+            conn = self._connect()
+            try:
+                cur = conn.execute("UPDATE point_players SET total = 0")
+                conn.commit()
+                return int(cur.rowcount if cur.rowcount is not None else 0)
+            finally:
+                conn.close()
+
+    def get_meta(self, key: str) -> Optional[str]:
+        with self._lock:
+            conn = self._connect()
+            try:
+                row = conn.execute(
+                    "SELECT value FROM point_meta WHERE key = ?",
+                    (str(key),),
+                ).fetchone()
+            finally:
+                conn.close()
+        if row is None:
+            return None
+        return str(row["value"])
+
+    def set_meta(self, key: str, value: str) -> None:
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO point_meta (key, value)
+                    VALUES (?, ?)
+                    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                    """,
+                    (str(key), str(value)),
+                )
+                conn.commit()
+            finally:
+                conn.close()
 
     def seed_points_if_empty(self) -> None:
         with self._lock:

@@ -5,6 +5,8 @@ Giveaways : message avec bouton « Participer », templates prédéfinis, tirage
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
+import os
 import random
 import re
 import time
@@ -16,7 +18,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from database import GiveawayDB, PlayerDB
+from database import GiveawayDB, PlayerDB, PointDB, PointEntry
 from giveaway_templates import (
     TEMPLATES,
     build_embed_fields,
@@ -69,6 +71,8 @@ class GiveawayCog(commands.Cog):
         self.bot = bot
         self.db = GiveawayDB(db_path)
         self.player_db = PlayerDB(db_path)
+        self.point_db = PointDB(db_path)
+        self._monthly_task: Optional[asyncio.Task] = None
 
     @staticmethod
     def _banner_path() -> Optional[Path]:
@@ -84,6 +88,8 @@ class GiveawayCog(commands.Cog):
         embed.set_image(url=f"attachment://{_BANNER_FILENAME}")
 
     async def cog_load(self) -> None:
+        if self._monthly_task is None or self._monthly_task.done():
+            self._monthly_task = asyncio.create_task(self._monthly_points_loop())
         for rec in self.db.list_unfinished():
             self.bot.add_view(build_giveaway_view(rec.id))
             remaining = rec.ends_at - time.time()
@@ -91,6 +97,131 @@ class GiveawayCog(commands.Cog):
                 asyncio.create_task(self._sleep_and_finalize(rec.id, remaining))
             else:
                 asyncio.create_task(self._finalize_giveaway(rec.id))
+
+    async def cog_unload(self) -> None:
+        if self._monthly_task and not self._monthly_task.done():
+            self._monthly_task.cancel()
+
+    @staticmethod
+    def _month_key(d: dt.date) -> str:
+        return f"{d.year:04d}-{d.month:02d}"
+
+    @staticmethod
+    def _previous_month(d: dt.date) -> dt.date:
+        if d.month == 1:
+            return dt.date(d.year - 1, 12, 1)
+        return dt.date(d.year, d.month - 1, 1)
+
+    def _resolve_monthly_channel(self) -> Optional[discord.TextChannel]:
+        channel_id_raw = (os.getenv("MONTHLY_WIN_CHANNEL_ID") or "").strip()
+        if channel_id_raw.isdigit():
+            ch = self.bot.get_channel(int(channel_id_raw))
+            if isinstance(ch, discord.TextChannel):
+                return ch
+        for g in self.bot.guilds:
+            if g.system_channel and isinstance(g.system_channel, discord.TextChannel):
+                perms = g.system_channel.permissions_for(g.me) if g.me else None
+                if perms and perms.send_messages:
+                    return g.system_channel
+            for ch in g.text_channels:
+                perms = ch.permissions_for(g.me) if g.me else None
+                if perms and perms.send_messages:
+                    return ch
+        return None
+
+    async def _publish_monthly_points_result(
+        self, month_label: str, top_rows: List[PointEntry]
+    ) -> None:
+        channel = self._resolve_monthly_channel()
+        if channel is None:
+            print("[monthly] aucun salon disponible pour publier le mensuel", flush=True)
+            return
+
+        forced_winners: List[int] = []
+        for row in top_rows:
+            ids, unknown, ambiguous = await self._resolve_forced_winners(
+                channel.guild, row.display_name
+            )
+            if ids:
+                forced_winners.append(ids[0])
+            elif unknown:
+                ids2, _, _ = await self._resolve_forced_winners(channel.guild, row.player_key)
+                if ids2:
+                    forced_winners.append(ids2[0])
+            elif ambiguous:
+                print(
+                    f"[monthly] nom ambigu non résolu pour {row.display_name}",
+                    flush=True,
+                )
+
+        forced_winners = list(dict.fromkeys(forced_winners))[:3]
+        amount_eur, winner_count, _ = template_defaults("mensuel")
+        if forced_winners:
+            winner_count = len(forced_winners)
+
+        title, desc, color = build_embed_fields(
+            "mensuel",
+            amount_eur=amount_eur,
+            winner_count=winner_count,
+            ends_ts=int(time.time()),
+        )
+        desc = f"{desc}\n\n📅 Classement points pris en compte: **{month_label}**"
+        embed = discord.Embed(title=title, description=desc, color=color)
+        embed.set_footer(text=footer_participants(0))
+        banner_path = self._banner_path()
+        if banner_path:
+            self._attach_banner(embed)
+
+        gid = uuid.uuid4().hex
+        if banner_path:
+            msg = await channel.send(
+                embed=embed,
+                view=build_giveaway_view(gid),
+                file=discord.File(banner_path, filename=_BANNER_FILENAME),
+            )
+        else:
+            msg = await channel.send(embed=embed, view=build_giveaway_view(gid))
+
+        self.db.create(
+            gid,
+            guild_id=channel.guild.id,
+            channel_id=channel.id,
+            message_id=msg.id,
+            template_key="mensuel",
+            amount_eur=amount_eur,
+            winner_count=winner_count,
+            ends_at=time.time(),
+        )
+        self.bot.add_view(build_giveaway_view(gid))
+        await self._finalize_giveaway(gid, forced_winners=forced_winners)
+        print(
+            f"[monthly] publié sur #{channel.name} pour {month_label} (winners={len(forced_winners)})",
+            flush=True,
+        )
+
+    async def _monthly_points_loop(self) -> None:
+        """Le 1er du mois: publier top 3 points du mois précédent puis reset."""
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            try:
+                today = dt.date.today()
+                current_month = self._month_key(today)
+                previous_month = self._month_key(self._previous_month(today))
+                if today.day == 1:
+                    last_processed = self.point_db.get_meta("monthly_points_last_processed")
+                    if last_processed != previous_month:
+                        top = [row for row in self.point_db.list_top_by_total(limit=3) if row.total > 0]
+                        await self._publish_monthly_points_result(previous_month, top)
+                        self.point_db.reset_all_totals()
+                        self.point_db.set_meta("monthly_points_last_processed", previous_month)
+                        self.point_db.set_meta("monthly_points_last_reset_month", current_month)
+                        print(
+                            f"[monthly] top3 traité pour {previous_month}, points reset pour {current_month}",
+                            flush=True,
+                        )
+            except Exception as e:
+                print(f"[monthly] erreur loop: {e}", flush=True)
+            await asyncio.sleep(300)
 
     async def _sleep_and_finalize(self, gid: str, delay: float) -> None:
         await asyncio.sleep(delay)

@@ -1197,26 +1197,36 @@ class SessionCog(commands.Cog):
     @session.command(name="start", description="Démarrer la session call")
     @app_commands.guild_only()
     async def session_start(self, interaction: discord.Interaction) -> None:
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True, thinking=True)
         if not self._is_admin(interaction.user if isinstance(interaction.user, discord.Member) else None):
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Commande réservée aux admins.", ephemeral=True
             )
             return
         if interaction.guild is None:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Commande disponible uniquement en serveur.", ephemeral=True
             )
             return
         channel = self._session_channel(interaction.guild)
         if channel is None:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"Salon introuvable: `{_SESSION_CHANNEL_ID}`", ephemeral=True
             )
             return
         self.used_users.clear()
         self.active = True
-        await self._configure_channel_for_session(channel, enabled=True)
-        await interaction.response.send_message(
+        try:
+            await self._configure_channel_for_session(channel, enabled=True)
+        except (discord.Forbidden, discord.HTTPException) as e:
+            self.active = False
+            await interaction.followup.send(
+                f"Impossible de démarrer la session: `{e}`",
+                ephemeral=True,
+            )
+            return
+        await interaction.followup.send(
             f"Session démarrée dans {channel.mention}. Les membres du rôle <@&{_SESSION_ROLE_ID}> peuvent envoyer 1 message chacun.",
             ephemeral=True,
         )
@@ -1224,19 +1234,21 @@ class SessionCog(commands.Cog):
     @session.command(name="stop", description="Stopper la session call et nettoyer")
     @app_commands.guild_only()
     async def session_stop(self, interaction: discord.Interaction) -> None:
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True, thinking=True)
         if not self._is_admin(interaction.user if isinstance(interaction.user, discord.Member) else None):
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Commande réservée aux admins.", ephemeral=True
             )
             return
         if interaction.guild is None:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Commande disponible uniquement en serveur.", ephemeral=True
             )
             return
         channel = self._session_channel(interaction.guild)
         if channel is None:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"Salon introuvable: `{_SESSION_CHANNEL_ID}`", ephemeral=True
             )
             return
@@ -1247,15 +1259,22 @@ class SessionCog(commands.Cog):
         # Purge tous les messages visibles du salon.
         try:
             await channel.purge(limit=None)
-        except discord.Forbidden:
-            await interaction.response.send_message(
-                "Je n'ai pas la permission de supprimer les messages du salon.",
+        except (discord.Forbidden, discord.HTTPException) as e:
+            await interaction.followup.send(
+                f"Je n'ai pas pu supprimer les messages du salon: `{e}`",
                 ephemeral=True,
             )
             return
 
-        await self._configure_channel_for_session(channel, enabled=False)
-        await interaction.response.send_message(
+        try:
+            await self._configure_channel_for_session(channel, enabled=False)
+        except (discord.Forbidden, discord.HTTPException) as e:
+            await interaction.followup.send(
+                f"Session stoppée mais renommage/permissions impossible: `{e}`",
+                ephemeral=True,
+            )
+            return
+        await interaction.followup.send(
             f"Session arrêtée, salon nettoyé et renommé en `{_SESSION_NAME_OFF}`.",
             ephemeral=True,
         )

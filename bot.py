@@ -1230,7 +1230,7 @@ class Bot19(commands.Bot):
         await self.wait_until_ready()
         source_url = (
             os.getenv("RUMBLE_CHANNEL_URL")
-            or "https://rumble.com/c/19enplein"
+            or "https://rumble.com/user/19enplein"
         ).strip()
         poll_seconds_raw = (os.getenv("RUMBLE_POLL_SECONDS") or "90").strip()
         poll_seconds = int(poll_seconds_raw) if poll_seconds_raw.isdigit() else 90

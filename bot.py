@@ -5,6 +5,7 @@ Bot Discord — gestion liste joueurs (Discord + Gamdom + KYC) pour 19enplein.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import sqlite3
@@ -21,7 +22,6 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 from database import Player, PlayerDB, PointDB, PointEntry, RankDB, RankEntry
-from gamdom_slots import GAMDOM_SLOTS
 from giveaway_cog import GiveawayCog
 from point_seed_list import normalize_point_key
 from rank_seed_list import effective_montant_eur, tier_name_only
@@ -108,6 +108,7 @@ _SESSION_CHANNEL_ID = 1501631864220156016
 _SESSION_ROLE_ID = 1501617952376754196
 _SESSION_NAME_ON = "🟢💎call💎🟢"
 _SESSION_NAME_OFF = "🔴💎call💎🔴"
+_SLOTS_SOURCE_JSON = Path(r"C:\Users\mathi\Desktop\site BH 1.02\jeux.json")
 
 
 def _truncate_cell(s: str, max_len: int) -> str:
@@ -1162,6 +1163,56 @@ class SessionCog(commands.Cog):
         self.bot = bot
         self.active: bool = False
         self.used_users: Set[int] = set()
+        self.slot_catalog: List[Dict[str, str]] = self._load_slot_catalog()
+
+    @staticmethod
+    def _load_slot_catalog() -> List[Dict[str, str]]:
+        """Charge la liste des slots depuis jeux.json (nom/provider/image)."""
+        try:
+            raw = _SLOTS_SOURCE_JSON.read_text(encoding="utf-8")
+            data = json.loads(raw)
+            if not isinstance(data, list):
+                return []
+            seen: Set[Tuple[str, str]] = set()
+            out: List[Dict[str, str]] = []
+            for row in data:
+                if not isinstance(row, dict):
+                    continue
+                sid = str(row.get("id", "")).strip()
+                nom = str(row.get("nom", "")).strip()
+                provider = str(row.get("provider", "")).strip()
+                image = str(row.get("image", "")).strip()
+                if not sid or not nom:
+                    continue
+                key = (nom.lower(), provider.lower())
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(
+                    {
+                        "id": sid,
+                        "nom": nom,
+                        "provider": provider or "Inconnu",
+                        "image": image,
+                    }
+                )
+            out.sort(key=lambda x: (x["nom"].lower(), x["provider"].lower()))
+            return out
+        except Exception as e:
+            print(f"[session] impossible de charger jeux.json: {e}", flush=True)
+            return []
+
+    def _slot_by_id(self, slot_id: str) -> Optional[Dict[str, str]]:
+        sid = (slot_id or "").strip()
+        if not sid:
+            return None
+        return next((s for s in self.slot_catalog if s["id"] == sid), None)
+
+    def _slot_by_name_contains(self, query: str) -> Optional[Dict[str, str]]:
+        q = (query or "").strip().lower()
+        if not q:
+            return None
+        return next((s for s in self.slot_catalog if q in s["nom"].lower()), None)
 
     @staticmethod
     def _is_staff(member: Optional[discord.Member]) -> bool:
@@ -1309,7 +1360,7 @@ class SessionCog(commands.Cog):
 
     @app_commands.command(name="call", description="Call une machine pendant la session")
     @app_commands.guild_only()
-    @app_commands.describe(machine="Nom de la machine / slot")
+    @app_commands.describe(machine="Machine (liste issue de jeux.json)")
     async def call(self, interaction: discord.Interaction, machine: str) -> None:
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
         if member is None or interaction.guild is None:
@@ -1346,37 +1397,45 @@ class SessionCog(commands.Cog):
             )
             return
 
-        selected = machine.strip()
-        if selected not in GAMDOM_SLOTS:
-            q = selected.lower()
-            match = next((s for s in GAMDOM_SLOTS if q in s.lower()), None)
-            if match:
-                selected = match
-            else:
-                await interaction.response.send_message(
-                    "Machine introuvable dans la liste. Commence à taper le nom pour utiliser l'autocomplétion.",
-                    ephemeral=True,
-                )
-                return
+        slot = self._slot_by_id(machine) or self._slot_by_name_contains(machine)
+        if slot is None:
+            await interaction.response.send_message(
+                "Machine introuvable dans `jeux.json`. Commence à taper pour utiliser l'autocomplétion.",
+                ephemeral=True,
+            )
+            return
 
         if not is_staff:
             self.used_users.add(member.id)
 
-        await interaction.response.send_message(
-            f"🎰 **CALL MACHINE**\n👤 Caller: {member.mention}\n💎 Machine: **{selected}**"
+        embed = discord.Embed(
+            title="🎰 CALL MACHINE",
+            description=f"👤 Caller: {member.mention}\n💎 Machine: **{slot['nom']}**",
+            color=_CLR_CYAN,
         )
+        embed.add_field(name="Provider", value=slot["provider"], inline=True)
+        if slot.get("image"):
+            embed.set_thumbnail(url=slot["image"])
+        await interaction.response.send_message(embed=embed)
 
     @call.autocomplete("machine")
     async def call_machine_autocomplete(
         self, interaction: discord.Interaction, current: str
     ) -> List[app_commands.Choice[str]]:
         q = (current or "").strip().lower()
+        if not self.slot_catalog:
+            return []
         if not q:
-            return [app_commands.Choice(name=s, value=s) for s in GAMDOM_SLOTS[:25]]
+            out: List[app_commands.Choice[str]] = []
+            for s in self.slot_catalog[:25]:
+                label = f"{s['nom']} · {s['provider']}"
+                out.append(app_commands.Choice(name=label[:100], value=s["id"]))
+            return out
         out: List[app_commands.Choice[str]] = []
-        for s in GAMDOM_SLOTS:
-            if q in s.lower():
-                out.append(app_commands.Choice(name=s, value=s))
+        for s in self.slot_catalog:
+            if q in s["nom"].lower() or q in s["provider"].lower():
+                label = f"{s['nom']} · {s['provider']}"
+                out.append(app_commands.Choice(name=label[:100], value=s["id"]))
             if len(out) >= 25:
                 break
         return out

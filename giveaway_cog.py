@@ -31,15 +31,11 @@ _TEMPLATE_CHOICES = [
     app_commands.Choice(name=str(v["choice_name"]), value=k)
     for k, v in TEMPLATES.items()
 ]
-_BANNER_FILENAME = "giveaway_banner.png"
+_BANNER_FILENAME = "giveaway_banner_12a8.png"
 _DEFAULT_MONTHLY_CHANNEL_ID = 1500459538275504188
 _FORCED_BANNER_PATH = Path(
-    r"C:\Users\mathi\.cursor\projects\c-Users-mathi-Desktop-bot-19\assets\c__Users_mathi_AppData_Roaming_Cursor_User_workspaceStorage_f7a4a39b924895bde9b0e1a5b57b7e8b_images_bot_en_plein_banniere-677ac407-c48a-4217-8c68-2782c457ee5f.png"
+    r"C:\Users\mathi\.cursor\projects\c-Users-mathi-Desktop-bot-19\assets\c__Users_mathi_AppData_Roaming_Cursor_User_workspaceStorage_f7a4a39b924895bde9b0e1a5b57b7e8b_images_image-12a8cd95-52da-4f52-b413-d2794464969b.png"
 )
-_EXTERNAL_BANNER_PATH = Path(
-    r"C:\Users\mathi\.cursor\projects\c-Users-mathi-Desktop-bot-19\assets\c__Users_mathi_AppData_Roaming_Cursor_User_workspaceStorage_f7a4a39b924895bde9b0e1a5b57b7e8b_images_image-81e44d38-25a6-481e-842c-a567c375ced4.png"
-)
-_LOCAL_BANNER_PATH = Path(__file__).resolve().parent / "assets" / "19enplein_logo.png"
 
 
 class GiveawayParticipateButton(discord.ui.Button):
@@ -80,7 +76,7 @@ class GiveawayCog(commands.Cog):
 
     @staticmethod
     def _banner_path() -> Optional[Path]:
-        """Retourne le chemin de bannière disponible (image fournie puis fallback local)."""
+        """Retourne la bannière imposée pour tous les /win."""
         if _FORCED_BANNER_PATH.is_file():
             return _FORCED_BANNER_PATH
         env_path_raw = (os.getenv("GIVEAWAY_BANNER_PATH") or "").strip()
@@ -88,10 +84,6 @@ class GiveawayCog(commands.Cog):
             env_path = Path(env_path_raw).expanduser()
             if env_path.is_file():
                 return env_path
-        if _EXTERNAL_BANNER_PATH.is_file():
-            return _EXTERNAL_BANNER_PATH
-        if _LOCAL_BANNER_PATH.is_file():
-            return _LOCAL_BANNER_PATH
         return None
 
     @staticmethod

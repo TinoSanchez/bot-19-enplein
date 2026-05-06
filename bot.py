@@ -1179,21 +1179,35 @@ class SessionCog(commands.Cog):
     ) -> None:
         guild = channel.guild
         everyone = guild.default_role
-        role = guild.get_role(_SESSION_ROLE_ID)
+        kyc_role = guild.get_role(_SESSION_ROLE_ID)
 
         overwrites = channel.overwrites
         ow_everyone = overwrites.get(everyone, discord.PermissionOverwrite())
+        ow_everyone.view_channel = True
         ow_everyone.send_messages = False
         overwrites[everyone] = ow_everyone
 
-        if role is not None:
-            ow_role = overwrites.get(role, discord.PermissionOverwrite())
-            ow_role.send_messages = True if enabled else False
-            ow_role.view_channel = True if enabled else None
-            ow_role.read_message_history = True if enabled else None
-            # Autorise la suppression des messages dans ce salon pendant la session.
-            ow_role.manage_messages = True if enabled else False
-            overwrites[role] = ow_role
+        # KYC: 1 seul message géré côté listener, pas de suppression de messages.
+        if kyc_role is not None:
+            ow_kyc = overwrites.get(kyc_role, discord.PermissionOverwrite())
+            ow_kyc.view_channel = True
+            ow_kyc.read_message_history = True
+            ow_kyc.send_messages = True if enabled else False
+            ow_kyc.manage_messages = False
+            overwrites[kyc_role] = ow_kyc
+
+        # Staff whitelist: peuvent faire ce qu'ils veulent dans ce salon.
+        for rid in _ALLOWED_ROLE_IDS:
+            staff_role = guild.get_role(rid)
+            if staff_role is None:
+                continue
+            ow_staff = overwrites.get(staff_role, discord.PermissionOverwrite())
+            ow_staff.view_channel = True
+            ow_staff.read_message_history = True
+            ow_staff.send_messages = True
+            ow_staff.manage_messages = True
+            ow_staff.manage_channels = True
+            overwrites[staff_role] = ow_staff
 
         new_name = _SESSION_NAME_ON if enabled else _SESSION_NAME_OFF
         await channel.edit(name=new_name, overwrites=overwrites)
@@ -1294,7 +1308,13 @@ class SessionCog(commands.Cog):
         if not isinstance(message.author, discord.Member):
             return
 
+        if message.author.guild_permissions.administrator:
+            return
+
         role_ids = {r.id for r in message.author.roles}
+        if role_ids.intersection(_ALLOWED_ROLE_IDS):
+            return
+
         if _SESSION_ROLE_ID not in role_ids:
             try:
                 await message.delete()

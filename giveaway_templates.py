@@ -129,6 +129,31 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
             "🤑 GG À TOI ! Reste bien attentif sur le chat Gamdom pour le prochain drop ! 🍒🔔💎🤑"
         ),
     },
+    "tournoi": {
+        "choice_name": "tournoi",
+        "default_amount": 60,
+        "default_winners": 2,
+        "default_duration_minutes": 0,
+        "title": "🎰 Tournoi du Dimanche",
+        "description": (
+            "🏆 Tournoi **DIMANCHE** en cours ! 🏆\n\n"
+            "💰 Cash total : **{amount}$**\n"
+            "👥 Gagnant(s) : **{winners}**\n"
+            "⏱️ Fin : {ends_rel}\n\n"
+            "Clique sur **Participer** pour entrer dans le tournoi."
+        ),
+        "color": 0x9B59B6,
+        "result_title": "🏆 LES GAGNANTS DU DIMANCHE ! 🏆",
+        "result_description": (
+            "🏆 LES GAGNANTS DU DIMANCHE ! 🏆\n"
+            "🏆 {winner_line} !!! 🏆\n"
+            "Le verdict est tombé pour le tournoi de bonus par équipe ! 🎰✨\n\n"
+            "{tournoi_cash_line}\n\n"
+            "✅ Bravo à tous pour votre participation dans ce tournoi !\n\n"
+            "🤑 GG AUX GAGNANTS ! 💸🔥\n"
+            "Rendez-vous dimanche prochain pour le prochain tournoi ! 🍒🔔💎🎰"
+        ),
+    },
 }
 
 
@@ -201,10 +226,16 @@ def build_result_fields(
         monthly_lines.append(f"{medal} Place {i + 1} : {mention} Repart avec {prize}$ !")
     if not monthly_lines:
         monthly_lines.append("Aucun participant ce mois-ci.")
+    tournoi_cash_line = (
+        "💰 Le Cash : Félicitations au gagnant ! tu repars avec 60$ ( C'est énorme !!! )"
+        if len(winner_mentions) <= 1
+        else "💰 Le Cash : Félicitations à l'équipe victorieuse ! Vous repartez avec 60$ à vous partager."
+    )
     desc = str(t.get("result_description", "Gagnant(s) : {winner_line}")).format(
         amount=amount_eur,
         winner_line=winner_line,
         per_winner=_format_per_winner(amount_eur, len(winner_mentions)),
+        tournoi_cash_line=tournoi_cash_line,
         monthly_lines="\n\n".join(monthly_lines),
     )
     title = str(t.get("result_title", "Giveaway terminé"))

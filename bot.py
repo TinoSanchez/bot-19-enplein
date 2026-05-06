@@ -21,6 +21,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 from database import Player, PlayerDB, PointDB, PointEntry, RankDB, RankEntry
+from gamdom_slots import GAMDOM_SLOTS
 from giveaway_cog import GiveawayCog
 from point_seed_list import normalize_point_key
 from rank_seed_list import effective_montant_eur, tier_name_only
@@ -1163,6 +1164,15 @@ class SessionCog(commands.Cog):
         self.used_users: Set[int] = set()
 
     @staticmethod
+    def _is_staff(member: Optional[discord.Member]) -> bool:
+        if member is None:
+            return False
+        if member.guild_permissions.administrator:
+            return True
+        role_ids = {r.id for r in member.roles}
+        return bool(role_ids.intersection(_ALLOWED_ROLE_IDS))
+
+    @staticmethod
     def _is_admin(member: Optional[discord.Member]) -> bool:
         if member is None:
             return False
@@ -1297,6 +1307,80 @@ class SessionCog(commands.Cog):
             ephemeral=True,
         )
 
+    @app_commands.command(name="call", description="Call une machine pendant la session")
+    @app_commands.guild_only()
+    @app_commands.describe(machine="Nom de la machine / slot")
+    async def call(self, interaction: discord.Interaction, machine: str) -> None:
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        if member is None or interaction.guild is None:
+            await interaction.response.send_message(
+                "Commande disponible uniquement en serveur.", ephemeral=True
+            )
+            return
+        if interaction.channel_id != _SESSION_CHANNEL_ID:
+            await interaction.response.send_message(
+                f"Utilise cette commande dans <#{_SESSION_CHANNEL_ID}>.",
+                ephemeral=True,
+            )
+            return
+        if not self.active:
+            await interaction.response.send_message(
+                "Aucune session active. Utilise `/session start` avant les calls.",
+                ephemeral=True,
+            )
+            return
+
+        role_ids = {r.id for r in member.roles}
+        is_staff = self._is_staff(member)
+        is_kyc = _SESSION_ROLE_ID in role_ids
+        if not (is_staff or is_kyc):
+            await interaction.response.send_message(
+                "Tu n'as pas le rôle autorisé pour faire un call.",
+                ephemeral=True,
+            )
+            return
+        if (not is_staff) and member.id in self.used_users:
+            await interaction.response.send_message(
+                "Tu as déjà utilisé ton unique call pour cette session.",
+                ephemeral=True,
+            )
+            return
+
+        selected = machine.strip()
+        if selected not in GAMDOM_SLOTS:
+            q = selected.lower()
+            match = next((s for s in GAMDOM_SLOTS if q in s.lower()), None)
+            if match:
+                selected = match
+            else:
+                await interaction.response.send_message(
+                    "Machine introuvable dans la liste. Commence à taper le nom pour utiliser l'autocomplétion.",
+                    ephemeral=True,
+                )
+                return
+
+        if not is_staff:
+            self.used_users.add(member.id)
+
+        await interaction.response.send_message(
+            f"🎰 **CALL MACHINE**\n👤 Caller: {member.mention}\n💎 Machine: **{selected}**"
+        )
+
+    @call.autocomplete("machine")
+    async def call_machine_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> List[app_commands.Choice[str]]:
+        q = (current or "").strip().lower()
+        if not q:
+            return [app_commands.Choice(name=s, value=s) for s in GAMDOM_SLOTS[:25]]
+        out: List[app_commands.Choice[str]] = []
+        for s in GAMDOM_SLOTS:
+            if q in s.lower():
+                out.append(app_commands.Choice(name=s, value=s))
+            if len(out) >= 25:
+                break
+        return out
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
         if message.author.bot:
@@ -1350,6 +1434,12 @@ class Bot19(commands.Bot):
             return False
         if member.guild_permissions.administrator:
             return True
+        # Exception: /call autorisé aussi au rôle KYC session.
+        cmd = interaction.command.qualified_name if interaction.command else ""
+        if cmd == "call":
+            role_ids = {r.id for r in member.roles}
+            if _SESSION_ROLE_ID in role_ids:
+                return True
         role_ids = {r.id for r in member.roles}
         return bool(role_ids.intersection(_ALLOWED_ROLE_IDS))
 

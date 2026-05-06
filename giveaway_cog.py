@@ -86,7 +86,7 @@ class GiveawayCog(commands.Cog):
 
     @staticmethod
     def _attach_banner(embed: discord.Embed) -> None:
-        embed.set_image(url=f"attachment://{_BANNER_FILENAME}")
+        embed.set_thumbnail(url=f"attachment://{_BANNER_FILENAME}")
 
     async def _edit_message_with_banner(
         self,

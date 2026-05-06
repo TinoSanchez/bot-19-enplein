@@ -1232,17 +1232,18 @@ class Bot19(commands.Bot):
 
     def _build_rumble_live_embed(self, live_url: str) -> discord.Embed:
         e = discord.Embed(
-            title="🔴 19ENPLEIN EST EN LIVE SUR RUMBLE",
+            title="🔴🎰 19ENPLEIN EST EN LIVE SUR RUMBLE 🚀",
             description=(
-                "Le live vient de commencer !\n"
-                f"👉 [Rejoindre le live maintenant]({live_url})"
+                "🔥 Le live vient de commencer !\n"
+                f"👉🎥 [Rejoindre le live maintenant]({live_url})\n"
+                "💬 Viens spammer le chat avec la team !"
             ),
             color=_CLR_GOLD,
             timestamp=discord.utils.utcnow(),
         )
-        e.add_field(name="Plateforme", value="Rumble", inline=True)
-        e.add_field(name="Lien", value=live_url, inline=False)
-        e.set_footer(text="19ENPLEIN CASINO · Notification live")
+        e.add_field(name="📺 Plateforme", value="Rumble", inline=True)
+        e.add_field(name="🔗 Lien", value=live_url, inline=False)
+        e.set_footer(text="19ENPLEIN CASINO · Notification live 🔔")
         if _RUMBLE_BANNER_PATH.is_file():
             e.set_thumbnail(url="attachment://rumble_live_banner.png")
         return e
@@ -1251,7 +1252,11 @@ class Bot19(commands.Bot):
         self, channel: discord.TextChannel, live_url: str, *, ping_everyone: bool
     ) -> None:
         embed = self._build_rumble_live_embed(live_url)
-        content = "@everyone 🚨 LIVE EN COURS !" if ping_everyone else "🚨 TEST LIVE (sans mention)"
+        content = (
+            "@everyone 🚨🔴 LIVE EN COURS ! GO GO GO ! 🎰"
+            if ping_everyone
+            else "🚨 TEST LIVE (sans mention)"
+        )
         kwargs: Dict[str, Any] = {
             "content": content,
             "embed": embed,

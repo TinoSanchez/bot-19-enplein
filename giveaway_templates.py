@@ -18,7 +18,7 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "description": (
             "🏆 Giveaway **STREAM** en cours ! 🏆\n\n"
             "💰 Gain : **{amount}$** cash\n"
-            "👥 Gagnant(s) : **{winners}**\n"
+            "👥 {winner_label} : **{winners}**\n"
             "⏱️ Fin : {ends_rel} ({ends_abs})\n\n"
             "Clique sur **Participer** pour t’inscrire au tirage."
         ),
@@ -26,10 +26,10 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "result_title": "🏆 AND THE WINNER IS ! 🏆",
         "result_description": (
             "🏆 {winner_line} 🏆\n"
-            "Félicitations au chanceux du jour sur le stream ! 🎰✨\n\n"
-            "💰 Gain : {amount}$ cash crédités immédiatement !\n\n"
-            "🔥 Statut : Que tu sois affilié ou non, la chance a tourné pour toi !\n\n"
-            "🤑 GG à toi ! On se retrouve demain pour le prochain tirage au sort quotidien sur le chat ! 🍒🔔💎"
+            "{stream_congrats_line}\n\n"
+            "{stream_cash_line}\n\n"
+            "{stream_status_line}\n\n"
+            "{stream_gg_line}"
         ),
     },
     "lundi": {
@@ -41,7 +41,7 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "description": (
             "🏆 Giveaway **LUNDI** en cours ! 🏆\n\n"
             "💰 Cash total : **{amount}$**\n"
-            "👥 Gagnant(s) : **{winners}**\n"
+            "👥 {winner_label} : **{winners}**\n"
             "💵 Gain par personne : **{per_winner}$**\n"
             "⏱️ Fin : {ends_rel}\n\n"
             "Clique sur **Participer** pour entrer dans le tirage."
@@ -51,9 +51,9 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "result_description": (
             "🏆 {winner_line} !!! 🏆\n"
             "Le tirage au sort vient de rendre son verdict pour le giveaway de {amount}$ ! 🎰✨\n\n"
-            "💰 Le Cash : Félicitations aux vainqueurs ! Chaque personne gagne {per_winner}$.\n\n"
-            "✅ Condition validée : Bravo à nos affiliés KYC 2 pour leur victoire !\n\n"
-            "🤑 GG AUX GAGNANTS ! 💸🔥\n"
+            "{lundi_cash_line}\n\n"
+            "{lundi_condition_line}\n\n"
+            "{lundi_gg_line}\n"
             "Rendez-vous lundi prochain pour remettre ça ! 🍒🔔💎🎰"
         ),
     },
@@ -66,7 +66,7 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "description": (
             "🏆 Giveaway **VENDREDI** en cours ! 🏆\n\n"
             "💰 Cash total : **{amount}$**\n"
-            "👥 Gagnant(s) : **{winners}**\n"
+            "👥 {winner_label} : **{winners}**\n"
             "💵 Gain par personne : **{per_winner}$**\n"
             "⏱️ Fin : {ends_rel}\n\n"
             "Clique sur **Participer** pour entrer dans le tirage."
@@ -76,9 +76,9 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "result_description": (
             "🏆 {winner_line} ! 🏆\n"
             "Le tirage au sort vient de désigner les chanceux de la semaine pour le giveaway de {amount}$ ! 🎰✨\n\n"
-            "💰 Le Butin : Félicitations aux vainqueurs ! Chaque personne gagne {per_winner}$.\n\n"
-            "✅ La Condition : Bravo à nos affiliés KYC 2 qui ont été tirés au sort !\n\n"
-            "🤑 GG AUX GAGNANTS ! QUEL BEAU DÉBUT DE WEEK-END ! 💸🔥\n"
+            "{vendredi_cash_line}\n\n"
+            "{vendredi_condition_line}\n\n"
+            "{vendredi_gg_line}\n"
             "Rendez-vous vendredi prochain pour remettre ça ! 🍒🔔💎🎰"
         ),
     },
@@ -91,7 +91,7 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "description": (
             "🏆 Giveaway **MENSUEL** en cours ! 🏆\n\n"
             "💰 Cagnotte : **{amount}$**\n"
-            "👥 Classement gagnant : **{winners}** place(s)\n"
+            "👥 Classement gagnant : **{winners}** place{place_suffix}\n"
             "⏱️ Fin : {ends_rel}\n\n"
             "Clique sur **Participer** pour être dans le tirage final."
         ),
@@ -114,7 +114,7 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "description": (
             "🏆 Giveaway **PREMIER** en cours ! 🏆\n\n"
             "💰 Butin : **{amount}$**\n"
-            "👥 Gagnant(s) : **{winners}**\n"
+            "👥 {winner_label} : **{winners}**\n"
             "⏱️ Fin : {ends_rel}\n\n"
             "Clique sur **Participer** pour entrer dans le tirage."
         ),
@@ -138,7 +138,7 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "description": (
             "🏆 Tournoi **DIMANCHE** en cours ! 🏆\n\n"
             "💰 Cash total : **{amount}$**\n"
-            "👥 Gagnant(s) : **{winners}**\n"
+            "👥 {winner_label} : **{winners}**\n"
             "⏱️ Fin : {ends_rel}\n\n"
             "Clique sur **Participer** pour entrer dans le tournoi."
         ),
@@ -182,6 +182,10 @@ def _format_per_winner(amount_eur: int, winner_count: int) -> str:
     return str(int(value)) if value.is_integer() else f"{value:.2f}".rstrip("0").rstrip(".")
 
 
+def _winner_label(winner_count: int) -> str:
+    return "Gagnant" if int(winner_count) <= 1 else "Gagnants"
+
+
 def build_embed_fields(
     template_key: str,
     *,
@@ -195,6 +199,8 @@ def build_embed_fields(
     desc = str(t["description"]).format(
         amount=amount_eur,
         winners=winner_count,
+        winner_label=_winner_label(winner_count),
+        place_suffix="" if int(winner_count) <= 1 else "s",
         per_winner=_format_per_winner(amount_eur, winner_count),
         ends_rel=ends_rel,
         ends_abs=ends_abs,
@@ -231,11 +237,62 @@ def build_result_fields(
         if len(winner_mentions) <= 1
         else "💰 Le Cash : Félicitations à l'équipe victorieuse ! Vous repartez avec 60$ à vous partager."
     )
+    single = len(winner_mentions) <= 1
     desc = str(t.get("result_description", "Gagnant(s) : {winner_line}")).format(
         amount=amount_eur,
         winner_line=winner_line,
         per_winner=_format_per_winner(amount_eur, len(winner_mentions)),
         tournoi_cash_line=tournoi_cash_line,
+        stream_congrats_line=(
+            "Félicitations au chanceux du jour sur le stream ! 🎰✨"
+            if single
+            else "Félicitations aux chanceux du jour sur le stream ! 🎰✨"
+        ),
+        stream_cash_line=(
+            f"💰 Gain : {amount_eur}$ cash crédités immédiatement !"
+            if single
+            else f"💰 Gain : {amount_eur}$ cash à partager entre les gagnants !"
+        ),
+        stream_status_line=(
+            "🔥 Statut : Que tu sois affilié ou non, la chance a tourné pour toi !"
+            if single
+            else "🔥 Statut : Que vous soyez affiliés ou non, la chance a tourné pour vous !"
+        ),
+        stream_gg_line=(
+            "🤑 GG à toi ! On se retrouve demain pour le prochain tirage au sort quotidien sur le chat ! 🍒🔔💎"
+            if single
+            else "🤑 GG à vous ! On se retrouve demain pour le prochain tirage au sort quotidien sur le chat ! 🍒🔔💎"
+        ),
+        lundi_cash_line=(
+            f"💰 Le Cash : Félicitations au vainqueur ! Tu repars avec {amount_eur}$."
+            if single
+            else f"💰 Le Cash : Félicitations aux vainqueurs ! Chaque personne gagne {_format_per_winner(amount_eur, len(winner_mentions))}$."
+        ),
+        lundi_condition_line=(
+            "✅ Condition validée : Bravo à notre affilié KYC 2 pour sa victoire !"
+            if single
+            else "✅ Condition validée : Bravo à nos affiliés KYC 2 pour leur victoire !"
+        ),
+        lundi_gg_line=(
+            "🤑 GG AU GAGNANT ! 💸🔥"
+            if single
+            else "🤑 GG AUX GAGNANTS ! 💸🔥"
+        ),
+        vendredi_cash_line=(
+            f"💰 Le Butin : Félicitations au vainqueur ! Tu repars avec {amount_eur}$."
+            if single
+            else f"💰 Le Butin : Félicitations aux vainqueurs ! Chaque personne gagne {_format_per_winner(amount_eur, len(winner_mentions))}$."
+        ),
+        vendredi_condition_line=(
+            "✅ La Condition : Bravo à notre affilié KYC 2 qui a été tiré au sort !"
+            if single
+            else "✅ La Condition : Bravo à nos affiliés KYC 2 qui ont été tirés au sort !"
+        ),
+        vendredi_gg_line=(
+            "🤑 GG AU GAGNANT ! QUEL BEAU DÉBUT DE WEEK-END ! 💸🔥"
+            if single
+            else "🤑 GG AUX GAGNANTS ! QUEL BEAU DÉBUT DE WEEK-END ! 💸🔥"
+        ),
         monthly_lines="\n\n".join(monthly_lines),
     )
     title = str(t.get("result_title", "Giveaway terminé"))

@@ -25,7 +25,7 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "color": 0xF9C80E,
         "result_title": "🏆 AND THE WINNER IS ! 🏆",
         "result_description": (
-            "🏆 AND THE WINNER IS {winner_line} 🏆\n"
+            "🏆 {winner_line} 🏆\n"
             "Félicitations au chanceux du jour sur le stream ! 🎰✨\n\n"
             "💰 Gain : {amount}$ cash crédités immédiatement !\n\n"
             "🔥 Statut : Que tu sois affilié ou non, la chance a tourné pour toi !\n\n"
@@ -49,7 +49,7 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "color": 0x00D4FF,
         "result_title": "🏆 LES GAGNANTS DU LUNDI ! 🏆",
         "result_description": (
-            "🏆 LES GAGNANTS DU LUNDI SONT {winner_line} !!! 🏆\n"
+            "🏆 {winner_line} !!! 🏆\n"
             "Le tirage au sort vient de rendre son verdict pour le giveaway de {amount}$ ! 🎰✨\n\n"
             "💰 Le Cash : Félicitations aux vainqueurs ! Chaque personne gagne {per_winner}$.\n\n"
             "✅ Condition validée : Bravo à nos affiliés KYC 2 pour leur victoire !\n\n"
@@ -74,7 +74,7 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "color": 0xF38BA8,
         "result_title": "🏆 LES GAGNANTS DU VENDREDI ! 🏆",
         "result_description": (
-            "🏆 LES GAGNANTS DU VENDREDI SONT {winner_line} ! 🏆\n"
+            "🏆 {winner_line} ! 🏆\n"
             "Le tirage au sort vient de désigner les chanceux de la semaine pour le giveaway de {amount}$ ! 🎰✨\n\n"
             "💰 Le Butin : Félicitations aux vainqueurs ! Chaque personne gagne {per_winner}$.\n\n"
             "✅ La Condition : Bravo à nos affiliés KYC 2 qui ont été tirés au sort !\n\n"

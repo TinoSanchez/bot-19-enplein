@@ -32,6 +32,7 @@ _TEMPLATE_CHOICES = [
     for k, v in TEMPLATES.items()
 ]
 _BANNER_FILENAME = "giveaway_banner.png"
+_DEFAULT_MONTHLY_CHANNEL_ID = 1500459538275504188
 _EXTERNAL_BANNER_PATH = Path(
     r"C:\Users\mathi\.cursor\projects\c-Users-mathi-Desktop-bot-19\assets\c__Users_mathi_AppData_Roaming_Cursor_User_workspaceStorage_f7a4a39b924895bde9b0e1a5b57b7e8b_images_image-f8dba5a9-067f-4e18-b8a9-a187b5b5ffa9.png"
 )
@@ -114,19 +115,15 @@ class GiveawayCog(commands.Cog):
 
     def _resolve_monthly_channel(self) -> Optional[discord.TextChannel]:
         channel_id_raw = (os.getenv("MONTHLY_WIN_CHANNEL_ID") or "").strip()
-        if channel_id_raw.isdigit():
-            ch = self.bot.get_channel(int(channel_id_raw))
-            if isinstance(ch, discord.TextChannel):
-                return ch
-        for g in self.bot.guilds:
-            if g.system_channel and isinstance(g.system_channel, discord.TextChannel):
-                perms = g.system_channel.permissions_for(g.me) if g.me else None
-                if perms and perms.send_messages:
-                    return g.system_channel
-            for ch in g.text_channels:
-                perms = ch.permissions_for(g.me) if g.me else None
-                if perms and perms.send_messages:
-                    return ch
+        channel_id = (
+            int(channel_id_raw)
+            if channel_id_raw.isdigit()
+            else _DEFAULT_MONTHLY_CHANNEL_ID
+        )
+        ch = self.bot.get_channel(channel_id)
+        if isinstance(ch, discord.TextChannel):
+            return ch
+        # On impose ce salon pour la publication mensuelle.
         return None
 
     async def _publish_monthly_points_result(

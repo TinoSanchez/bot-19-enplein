@@ -34,7 +34,7 @@ _TEMPLATE_CHOICES = [
 _BANNER_FILENAME = "giveaway_banner.png"
 _DEFAULT_MONTHLY_CHANNEL_ID = 1500459538275504188
 _EXTERNAL_BANNER_PATH = Path(
-    r"C:\Users\mathi\.cursor\projects\c-Users-mathi-Desktop-bot-19\assets\c__Users_mathi_AppData_Roaming_Cursor_User_workspaceStorage_f7a4a39b924895bde9b0e1a5b57b7e8b_images_image-57e09dd6-3d7c-4090-89ee-b7546b948fdf.png"
+    r"C:\Users\mathi\.cursor\projects\c-Users-mathi-Desktop-bot-19\assets\c__Users_mathi_AppData_Roaming_Cursor_User_workspaceStorage_f7a4a39b924895bde9b0e1a5b57b7e8b_images_image-91c3dde1-fd6f-4fad-88ae-d393e9592065.png"
 )
 _LOCAL_BANNER_PATH = Path(__file__).resolve().parent / "assets" / "19enplein_logo.png"
 
@@ -78,6 +78,11 @@ class GiveawayCog(commands.Cog):
     @staticmethod
     def _banner_path() -> Optional[Path]:
         """Retourne le chemin de bannière disponible (image fournie puis fallback local)."""
+        env_path_raw = (os.getenv("GIVEAWAY_BANNER_PATH") or "").strip()
+        if env_path_raw:
+            env_path = Path(env_path_raw).expanduser()
+            if env_path.is_file():
+                return env_path
         if _EXTERNAL_BANNER_PATH.is_file():
             return _EXTERNAL_BANNER_PATH
         if _LOCAL_BANNER_PATH.is_file():

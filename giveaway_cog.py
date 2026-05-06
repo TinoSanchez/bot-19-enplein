@@ -10,13 +10,13 @@ import re
 import time
 import uuid
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Set, Tuple
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from database import GiveawayDB
+from database import GiveawayDB, PlayerDB
 from giveaway_templates import (
     TEMPLATES,
     build_embed_fields,
@@ -29,6 +29,11 @@ _TEMPLATE_CHOICES = [
     app_commands.Choice(name=str(v["choice_name"]), value=k)
     for k, v in TEMPLATES.items()
 ]
+_BANNER_FILENAME = "giveaway_banner.png"
+_EXTERNAL_BANNER_PATH = Path(
+    r"C:\Users\mathi\.cursor\projects\c-Users-mathi-Desktop-bot-19\assets\c__Users_mathi_AppData_Roaming_Cursor_User_workspaceStorage_f7a4a39b924895bde9b0e1a5b57b7e8b_images_image-f8dba5a9-067f-4e18-b8a9-a187b5b5ffa9.png"
+)
+_LOCAL_BANNER_PATH = Path(__file__).resolve().parent / "assets" / "19enplein_logo.png"
 
 
 class GiveawayParticipateButton(discord.ui.Button):
@@ -63,6 +68,20 @@ class GiveawayCog(commands.Cog):
     def __init__(self, bot: commands.Bot, db_path: Path) -> None:
         self.bot = bot
         self.db = GiveawayDB(db_path)
+        self.player_db = PlayerDB(db_path)
+
+    @staticmethod
+    def _banner_path() -> Optional[Path]:
+        """Retourne le chemin de bannière disponible (image fournie puis fallback local)."""
+        if _EXTERNAL_BANNER_PATH.is_file():
+            return _EXTERNAL_BANNER_PATH
+        if _LOCAL_BANNER_PATH.is_file():
+            return _LOCAL_BANNER_PATH
+        return None
+
+    @staticmethod
+    def _attach_banner(embed: discord.Embed) -> None:
+        embed.set_image(url=f"attachment://{_BANNER_FILENAME}")
 
     async def cog_load(self) -> None:
         for rec in self.db.list_unfinished():
@@ -85,6 +104,78 @@ class GiveawayCog(commands.Cog):
         ids = re.findall(r"<@!?(\d+)>", raw)
         return [int(x) for x in ids]
 
+    async def _resolve_forced_winners(
+        self, guild: Optional[discord.Guild], raw: str
+    ) -> Tuple[List[int], List[str], List[str]]:
+        """
+        Résout les gagnants forcés via mentions, IDs ou pseudo.
+        Retourne: (ids résolus, introuvables, ambigus)
+        """
+        if not raw:
+            return [], [], []
+
+        # Mentions/IDs explicites
+        ids: List[int] = self._parse_mentioned_user_ids(raw)
+
+        cleaned = re.sub(r"<@!?\d+>", " ", raw)
+        tokens = [
+            t.strip()
+            for t in re.split(r"[,\n;]+", cleaned)
+            if t and t.strip()
+        ]
+
+        # Index des pseudos connus (serveur + base players)
+        name_to_ids: Dict[str, Set[int]] = {}
+
+        def _add_name(name: Optional[str], uid: int) -> None:
+            if not name:
+                return
+            key = str(name).strip().lower()
+            if not key:
+                return
+            bucket = name_to_ids.setdefault(key, set())
+            bucket.add(int(uid))
+
+        if guild:
+            for m in guild.members:
+                _add_name(m.name, m.id)
+                _add_name(m.display_name, m.id)
+                _add_name(getattr(m, "global_name", None), m.id)
+
+        for p in self.player_db.list_all():
+            if p.discord_id.isdigit():
+                _add_name(p.discord_username, int(p.discord_id))
+
+        unknown: List[str] = []
+        ambiguous: List[str] = []
+        for tok in tokens:
+            if tok.isdigit():
+                ids.append(int(tok))
+                continue
+            key = tok.lower()
+            candidates = sorted(name_to_ids.get(key, set()))
+            if len(candidates) == 1:
+                ids.append(candidates[0])
+            elif len(candidates) == 0:
+                unknown.append(tok)
+            else:
+                ambiguous.append(tok)
+
+        # Unicité + ordre de saisie
+        unique_ids = list(dict.fromkeys(ids))
+        return unique_ids, unknown, ambiguous
+
+    @staticmethod
+    def _pick_random_role_members(role: Optional[discord.Role], count: int) -> List[int]:
+        """Tire au sort `count` membres (non-bots) ayant le rôle donné."""
+        if role is None or count <= 0:
+            return []
+        candidates = [m.id for m in role.members if not m.bot]
+        if not candidates:
+            return []
+        k = min(count, len(candidates))
+        return random.sample(candidates, k=k)
+
     def _running_embed(self, rec) -> discord.Embed:
         title, desc, color = build_embed_fields(
             rec.template_key,
@@ -94,6 +185,8 @@ class GiveawayCog(commands.Cog):
         )
         e = discord.Embed(title=title, description=desc, color=color)
         e.set_footer(text=footer_participants(len(rec.participants)))
+        if self._banner_path():
+            self._attach_banner(e)
         return e
 
     async def handle_participate(
@@ -177,6 +270,8 @@ class GiveawayCog(commands.Cog):
             description=body,
             color=color,
         )
+        if self._banner_path():
+            self._attach_banner(embed)
         try:
             ch = self.bot.get_channel(rec.channel_id)
             if isinstance(ch, discord.TextChannel):
@@ -190,6 +285,8 @@ class GiveawayCog(commands.Cog):
         interaction: discord.Interaction,
         template: str,
         joueurs: Optional[str] = None,
+        role: Optional[discord.Role] = None,
+        montant_par_joueur: Optional[int] = None,
     ) -> None:
         try:
             # ACK immédiat pour éviter "L'application ne répond plus".
@@ -205,8 +302,57 @@ class GiveawayCog(commands.Cog):
                 return
 
             amount_eur, winner_count, duration_minutes = template_defaults(template)
+            if template == "premier" and montant_par_joueur is not None:
+                if montant_par_joueur <= 0:
+                    await interaction.followup.send(
+                        "`montant_par_joueur` doit être supérieur à 0.",
+                        ephemeral=True,
+                    )
+                    return
+                amount_eur = int(montant_par_joueur)
             ends_at = time.time() + float(duration_minutes) * 60.0
             gid = uuid.uuid4().hex
+
+            forced_winners, unknown_names, ambiguous_names = (
+                await self._resolve_forced_winners(interaction.guild, joueurs or "")
+            )
+            if (joueurs or "").strip() and (unknown_names or ambiguous_names):
+                details: List[str] = []
+                if unknown_names:
+                    details.append(
+                        "Introuvable(s): " + ", ".join(f"`{n}`" for n in unknown_names)
+                    )
+                if ambiguous_names:
+                    details.append(
+                        "Ambigu(s): " + ", ".join(f"`{n}`" for n in ambiguous_names)
+                    )
+                await interaction.followup.send(
+                    "Je n'ai pas pu identifier certains joueurs.\n"
+                    + "\n".join(details)
+                    + "\nUtilise des mentions (`@pseudo`) ou des IDs Discord pour éviter toute erreur.",
+                    ephemeral=True,
+                )
+                return
+
+            # Premier: si tu donnes plusieurs gagnants manuels, on les prend tous.
+            if template == "premier" and forced_winners:
+                winner_count = len(forced_winners)
+
+            # Lundi/Vendredi: soit gagnants manuels, soit tirage aléatoire basé sur rôle.
+            if template in {"lundi", "vendredi"} and not forced_winners:
+                if role is None:
+                    await interaction.followup.send(
+                        "Pour ce template, choisis soit `joueurs`, soit `role` pour un tirage aléatoire par rôle.",
+                        ephemeral=True,
+                    )
+                    return
+                forced_winners = self._pick_random_role_members(role, winner_count)
+                if not forced_winners:
+                    await interaction.followup.send(
+                        f"Aucun membre éligible trouvé dans le rôle {role.mention}.",
+                        ephemeral=True,
+                    )
+                    return
 
             title, desc, color = build_embed_fields(
                 template,
@@ -216,10 +362,20 @@ class GiveawayCog(commands.Cog):
             )
             embed = discord.Embed(title=title, description=desc, color=color)
             embed.set_footer(text=footer_participants(0))
+            banner_path = self._banner_path()
+            if banner_path:
+                self._attach_banner(embed)
 
             view = build_giveaway_view(gid)
             try:
-                msg = await interaction.channel.send(embed=embed, view=view)
+                if banner_path:
+                    msg = await interaction.channel.send(
+                        embed=embed,
+                        view=view,
+                        file=discord.File(banner_path, filename=_BANNER_FILENAME),
+                    )
+                else:
+                    msg = await interaction.channel.send(embed=embed, view=view)
             except discord.Forbidden:
                 await interaction.followup.send(
                     "Je ne peux pas envoyer de message dans ce salon.", ephemeral=True
@@ -238,7 +394,6 @@ class GiveawayCog(commands.Cog):
             )
             self.bot.add_view(view)
 
-            forced_winners = self._parse_mentioned_user_ids(joueurs or "")
             delay = ends_at - time.time()
             if forced_winners:
                 asyncio.create_task(
@@ -267,7 +422,9 @@ class GiveawayCog(commands.Cog):
     @app_commands.guild_only()
     @app_commands.describe(
         template="Template giveaway",
-        joueurs='Optionnel : mentions gagnants forcés (ex: "@a @b")',
+        joueurs="Optionnel : gagnants forcés (mentions, IDs ou pseudos séparés par virgule)",
+        role="Optionnel : rôle pour tirage aléatoire (lundi/vendredi)",
+        montant_par_joueur="Optionnel : montant par joueur (uniquement template premier)",
     )
     @app_commands.choices(template=_TEMPLATE_CHOICES)
     async def win(
@@ -275,5 +432,9 @@ class GiveawayCog(commands.Cog):
         interaction: discord.Interaction,
         template: str,
         joueurs: Optional[str] = None,
+        role: Optional[discord.Role] = None,
+        montant_par_joueur: Optional[int] = None,
     ) -> None:
-        await self._launch_giveaway(interaction, template, joueurs)
+        await self._launch_giveaway(
+            interaction, template, joueurs, role, montant_par_joueur
+        )

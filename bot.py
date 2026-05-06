@@ -1152,6 +1152,13 @@ class Bot19(commands.Bot):
         """Désactivé temporairement pour éviter tout blocage d'ACK slash."""
         return True
 
+    async def _sync_for_guild(self, guild_id: int) -> None:
+        """Copie les commandes globales vers la guilde puis synchronise."""
+        guild_obj = discord.Object(id=guild_id)
+        self.tree.copy_global_to(guild=guild_obj)
+        synced = await self.tree.sync(guild=guild_obj)
+        print(f"[sync guild] guild={guild_id} cmds={len(synced)}", flush=True)
+
     async def setup_hook(self) -> None:
         await self.add_cog(AffiCog(self))
         await self.add_cog(PointCog(self))
@@ -1159,8 +1166,7 @@ class Bot19(commands.Bot):
         await self.add_cog(GiveawayCog(self, DB_PATH))
         if GUILD_ID:
             try:
-                synced = await self.tree.sync(guild=discord.Object(id=GUILD_ID))
-                print(f"[sync setup_hook] guild={GUILD_ID} cmds={len(synced)}", flush=True)
+                await self._sync_for_guild(GUILD_ID)
             except discord.HTTPException as e:
                 print(f"[sync setup_hook] erreur guild={GUILD_ID}: {e}", flush=True)
         else:
@@ -1183,8 +1189,7 @@ async def main() -> None:
         if not bot._guild_sync_done:
             for g in bot.guilds:
                 try:
-                    synced = await bot.tree.sync(guild=g)
-                    print(f"[sync on_ready] guild={g.id} cmds={len(synced)}", flush=True)
+                    await bot._sync_for_guild(g.id)
                 except discord.HTTPException as e:
                     print(f"[sync on_ready] erreur guild={g.id}: {e}", flush=True)
             bot._guild_sync_done = True

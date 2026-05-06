@@ -42,6 +42,7 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
             "🏆 Giveaway **LUNDI** en cours ! 🏆\n\n"
             "💰 Cash total : **{amount}$**\n"
             "👥 Gagnant(s) : **{winners}**\n"
+            "💵 Gain par personne : **{per_winner}$**\n"
             "⏱️ Fin : {ends_rel}\n\n"
             "Clique sur **Participer** pour entrer dans le tirage."
         ),
@@ -50,7 +51,7 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "result_description": (
             "🏆 LES GAGNANTS DU LUNDI SONT {winner_line} !!! 🏆\n"
             "Le tirage au sort vient de rendre son verdict pour le giveaway de {amount}$ ! 🎰✨\n\n"
-            "💰 Le Cash : Félicitations aux vainqueurs !\n\n"
+            "💰 Le Cash : Félicitations aux vainqueurs ! Chaque personne gagne {per_winner}$.\n\n"
             "✅ Condition validée : Bravo à nos affiliés KYC 2 pour leur victoire !\n\n"
             "🤑 GG AUX GAGNANTS ! 💸🔥\n"
             "Rendez-vous lundi prochain pour remettre ça ! 🍒🔔💎🎰"
@@ -66,6 +67,7 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
             "🏆 Giveaway **VENDREDI** en cours ! 🏆\n\n"
             "💰 Cash total : **{amount}$**\n"
             "👥 Gagnant(s) : **{winners}**\n"
+            "💵 Gain par personne : **{per_winner}$**\n"
             "⏱️ Fin : {ends_rel}\n\n"
             "Clique sur **Participer** pour entrer dans le tirage."
         ),
@@ -74,7 +76,7 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "result_description": (
             "🏆 LES GAGNANTS DU VENDREDI SONT {winner_line} ! 🏆\n"
             "Le tirage au sort vient de désigner les chanceux de la semaine pour le giveaway de {amount}$ ! 🎰✨\n\n"
-            "💰 Le Butin : Félicitations aux vainqueurs !\n\n"
+            "💰 Le Butin : Félicitations aux vainqueurs ! Chaque personne gagne {per_winner}$.\n\n"
             "✅ La Condition : Bravo à nos affiliés KYC 2 qui ont été tirés au sort !\n\n"
             "🤑 GG AUX GAGNANTS ! QUEL BEAU DÉBUT DE WEEK-END ! 💸🔥\n"
             "Rendez-vous vendredi prochain pour remettre ça ! 🍒🔔💎🎰"
@@ -103,6 +105,30 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
             "🤑 GG AUX GAGNANTS ! On remet les compteurs à zéro pour le mois prochain, alors soyez prêts à taper les mots clés sur le chat ! 🎰🍒🔔🤑"
         ),
     },
+    "premier": {
+        "choice_name": "premier",
+        "default_amount": 30,
+        "default_winners": 1,
+        "default_duration_minutes": 0,
+        "title": "🎰 Giveaway Premier",
+        "description": (
+            "🏆 Giveaway **PREMIER** en cours ! 🏆\n\n"
+            "💰 Butin : **{amount}$**\n"
+            "👥 Gagnant(s) : **{winners}**\n"
+            "⏱️ Fin : {ends_rel}\n\n"
+            "Clique sur **Participer** pour entrer dans le tirage."
+        ),
+        "color": 0xFFD166,
+        "result_title": "🏆 ALERTE GAGNANT GAMDOM ! 🏆",
+        "result_description": (
+            "🏆 ALERTE GAGNANT GAMDOM AUJOURD'HUI C'EST {winner_line} ! 🏆\n"
+            "La rapidité a payé cette semaine ! ⚡🎰\n\n"
+            "💰 Le Butin : Félicitations au(x) premier(s) 19EP visible(s) dans le chat Gamdom qui remporte(nt) chacun {amount}$ !\n\n"
+            "🎰 Type de Giveaway : Un tirage aléatoire par semaine qui récompense les plus réactifs !\n\n"
+            "🌍 Info : Ce gain était ouvert à tous, affiliés ou non !\n\n"
+            "🤑 GG À TOI ! Reste bien attentif sur le chat Gamdom pour le prochain drop ! 🍒🔔💎🤑"
+        ),
+    },
 }
 
 
@@ -124,6 +150,13 @@ def _ends_tags(ends_ts: int) -> Tuple[str, str]:
     return rel, abs_
 
 
+def _format_per_winner(amount_eur: int, winner_count: int) -> str:
+    """Retourne le montant gagné par personne, formaté proprement."""
+    n = max(1, int(winner_count))
+    value = float(amount_eur) / float(n)
+    return str(int(value)) if value.is_integer() else f"{value:.2f}".rstrip("0").rstrip(".")
+
+
 def build_embed_fields(
     template_key: str,
     *,
@@ -137,6 +170,7 @@ def build_embed_fields(
     desc = str(t["description"]).format(
         amount=amount_eur,
         winners=winner_count,
+        per_winner=_format_per_winner(amount_eur, winner_count),
         ends_rel=ends_rel,
         ends_abs=ends_abs,
     )
@@ -150,7 +184,14 @@ def build_result_fields(
     winner_mentions: List[str],
 ) -> Tuple[str, str, int]:
     t = TEMPLATES.get(template_key) or TEMPLATES["stream"]
-    winner_line = ", ".join(winner_mentions) if winner_mentions else "personne"
+    if not winner_mentions:
+        winner_line = "personne"
+    elif len(winner_mentions) == 1:
+        winner_line = winner_mentions[0]
+    elif len(winner_mentions) == 2:
+        winner_line = f"{winner_mentions[0]} et {winner_mentions[1]}"
+    else:
+        winner_line = ", ".join(winner_mentions[:-1]) + f" et {winner_mentions[-1]}"
     monthly_prizes = [50, 25, 15]
     monthly_medals = ["🥇", "🥈", "🥉"]
     monthly_lines = []
@@ -163,6 +204,7 @@ def build_result_fields(
     desc = str(t.get("result_description", "Gagnant(s) : {winner_line}")).format(
         amount=amount_eur,
         winner_line=winner_line,
+        per_winner=_format_per_winner(amount_eur, len(winner_mentions)),
         monthly_lines="\n\n".join(monthly_lines),
     )
     title = str(t.get("result_title", "Giveaway terminé"))

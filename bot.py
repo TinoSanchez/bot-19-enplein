@@ -1189,6 +1189,10 @@ class SessionCog(commands.Cog):
         if role is not None:
             ow_role = overwrites.get(role, discord.PermissionOverwrite())
             ow_role.send_messages = True if enabled else False
+            ow_role.view_channel = True if enabled else None
+            ow_role.read_message_history = True if enabled else None
+            # Autorise la suppression des messages dans ce salon pendant la session.
+            ow_role.manage_messages = True if enabled else False
             overwrites[role] = ow_role
 
         new_name = _SESSION_NAME_ON if enabled else _SESSION_NAME_OFF

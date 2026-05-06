@@ -6,8 +6,11 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import sqlite3
 import sys
+from urllib import error as urlerror
+from urllib import request as urlrequest
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -1147,6 +1150,7 @@ class Bot19(commands.Bot):
     def __init__(self) -> None:
         super().__init__(command_prefix="!", intents=intents, help_command=None)
         self._guild_sync_done = False
+        self._rumble_task: Optional[asyncio.Task] = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Désactivé temporairement pour éviter tout blocage d'ACK slash."""
@@ -1159,11 +1163,112 @@ class Bot19(commands.Bot):
         synced = await self.tree.sync(guild=guild_obj)
         print(f"[sync guild] guild={guild_id} cmds={len(synced)}", flush=True)
 
+    @staticmethod
+    def _extract_rumble_live_url(html: str) -> Optional[str]:
+        """Extrait l'URL live Rumble si la page indique un live en cours."""
+        if not html:
+            return None
+        lowered = html.lower()
+        live_markers = (
+            '"is_live":true',
+            '"livestream_status":1',
+            '"video_type":"live"',
+            "watching now",
+            "en direct",
+            "is live",
+        )
+        if not any(m in lowered for m in live_markers):
+            return None
+
+        # Cherche une URL vidéo Rumble (vxxxxx) dans le HTML.
+        match = re.search(r"https://rumble\.com/v[0-9a-z]+[^\"' <]*\.html", html, re.I)
+        if match:
+            return match.group(0)
+        return None
+
+    async def _fetch_rumble_live_url(self, source_url: str) -> Optional[str]:
+        def _blocking_fetch() -> Optional[str]:
+            req = urlrequest.Request(
+                source_url,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/125.0 Safari/537.36"
+                    )
+                },
+            )
+            with urlrequest.urlopen(req, timeout=20) as resp:
+                raw = resp.read()
+            html = raw.decode("utf-8", errors="ignore")
+            return self._extract_rumble_live_url(html)
+
+        try:
+            return await asyncio.to_thread(_blocking_fetch)
+        except (urlerror.URLError, TimeoutError, ValueError) as e:
+            print(f"[rumble] erreur fetch: {e}", flush=True)
+            return None
+
+    def _resolve_rumble_announce_channel(self) -> Optional[discord.TextChannel]:
+        chan_raw = (os.getenv("RUMBLE_ANNOUNCE_CHANNEL_ID") or "").strip()
+        if chan_raw.isdigit():
+            ch = self.get_channel(int(chan_raw))
+            if isinstance(ch, discord.TextChannel):
+                return ch
+        for g in self.guilds:
+            if g.system_channel and isinstance(g.system_channel, discord.TextChannel):
+                perms = g.system_channel.permissions_for(g.me) if g.me else None
+                if perms and perms.send_messages:
+                    return g.system_channel
+            for ch in g.text_channels:
+                perms = ch.permissions_for(g.me) if g.me else None
+                if perms and perms.send_messages:
+                    return ch
+        return None
+
+    async def _rumble_live_loop(self) -> None:
+        await self.wait_until_ready()
+        source_url = (
+            os.getenv("RUMBLE_CHANNEL_URL")
+            or "https://rumble.com/c/19enplein"
+        ).strip()
+        poll_seconds_raw = (os.getenv("RUMBLE_POLL_SECONDS") or "90").strip()
+        poll_seconds = int(poll_seconds_raw) if poll_seconds_raw.isdigit() else 90
+        poll_seconds = max(30, poll_seconds)
+
+        while not self.is_closed():
+            try:
+                live_url = await self._fetch_rumble_live_url(source_url)
+                was_live = point_db.get_meta("rumble_live_state") == "1"
+                last_url = point_db.get_meta("rumble_live_url") or ""
+
+                if live_url:
+                    if (not was_live) or (live_url != last_url):
+                        ch = self._resolve_rumble_announce_channel()
+                        if ch is not None:
+                            await ch.send(
+                                f"@everyone 🔴 **19enplein est en live sur Rumble !**\n{live_url}",
+                                allowed_mentions=discord.AllowedMentions(everyone=True),
+                            )
+                            print(f"[rumble] annonce envoyée: {live_url}", flush=True)
+                        point_db.set_meta("rumble_live_state", "1")
+                        point_db.set_meta("rumble_live_url", live_url)
+                else:
+                    if was_live:
+                        print("[rumble] live terminé", flush=True)
+                    point_db.set_meta("rumble_live_state", "0")
+                    point_db.set_meta("rumble_live_url", "")
+            except Exception as e:
+                print(f"[rumble] erreur loop: {e}", flush=True)
+            await asyncio.sleep(poll_seconds)
+
     async def setup_hook(self) -> None:
         await self.add_cog(AffiCog(self))
         await self.add_cog(PointCog(self))
         await self.add_cog(RankCog(self))
         await self.add_cog(GiveawayCog(self, DB_PATH))
+        if self._rumble_task is None or self._rumble_task.done():
+            self._rumble_task = asyncio.create_task(self._rumble_live_loop())
         if GUILD_ID:
             try:
                 await self._sync_for_guild(GUILD_ID)

@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from point_seed_list import POINT_INITIAL
 from rank_seed_list import RANK_INITIAL, VALID_TIERS, tier_default_eur
@@ -600,6 +600,7 @@ class GiveawayRecord:
     ends_at: float
     participants: List[int]
     ended: bool
+    meta: Dict[str, Any] = field(default_factory=dict)
 
 
 class GiveawayDB:
@@ -635,6 +636,12 @@ class GiveawayDB:
                 """
             )
             conn.commit()
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(giveaways)").fetchall()]
+            if "meta" not in cols:
+                conn.execute(
+                    "ALTER TABLE giveaways ADD COLUMN meta TEXT NOT NULL DEFAULT '{}'"
+                )
+                conn.commit()
             conn.close()
 
     def create(
@@ -648,7 +655,9 @@ class GiveawayDB:
         amount_eur: int,
         winner_count: int,
         ends_at: float,
+        meta: Optional[Dict[str, Any]] = None,
     ) -> None:
+        meta_json = json.dumps(meta or {}, ensure_ascii=False)
         with self._lock:
             conn = self._connect()
             try:
@@ -656,9 +665,9 @@ class GiveawayDB:
                     """
                     INSERT INTO giveaways (
                         id, guild_id, channel_id, message_id, template_key,
-                        amount_eur, winner_count, ends_at, participants, ended
+                        amount_eur, winner_count, ends_at, participants, ended, meta
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', 0)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', 0, ?)
                     """,
                     (
                         gid,
@@ -669,6 +678,7 @@ class GiveawayDB:
                         amount_eur,
                         winner_count,
                         ends_at,
+                        meta_json,
                     ),
                 )
                 conn.commit()
@@ -682,7 +692,7 @@ class GiveawayDB:
                 row = conn.execute(
                     """
                     SELECT id, guild_id, channel_id, message_id, template_key,
-                           amount_eur, winner_count, ends_at, participants, ended
+                           amount_eur, winner_count, ends_at, participants, ended, meta
                     FROM giveaways WHERE id = ?
                     """,
                     (gid,),
@@ -693,6 +703,12 @@ class GiveawayDB:
             return None
         parts = json.loads(row["participants"] or "[]")
         pid_list = [int(x) for x in parts]
+        try:
+            meta_obj = json.loads(row["meta"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            meta_obj = {}
+        if not isinstance(meta_obj, dict):
+            meta_obj = {}
         return GiveawayRecord(
             id=row["id"],
             guild_id=int(row["guild_id"]),
@@ -704,6 +720,7 @@ class GiveawayDB:
             ends_at=float(row["ends_at"]),
             participants=pid_list,
             ended=bool(row["ended"]),
+            meta=meta_obj,
         )
 
     def add_participant(self, gid: str, user_id: int) -> Tuple[bool, int]:
@@ -759,7 +776,7 @@ class GiveawayDB:
                 rows = conn.execute(
                     """
                     SELECT id, guild_id, channel_id, message_id, template_key,
-                           amount_eur, winner_count, ends_at, participants, ended
+                           amount_eur, winner_count, ends_at, participants, ended, meta
                     FROM giveaways WHERE ended = 0
                     """
                 ).fetchall()
@@ -768,6 +785,12 @@ class GiveawayDB:
         out: List[GiveawayRecord] = []
         for row in rows:
             parts = json.loads(row["participants"] or "[]")
+            try:
+                meta_obj = json.loads(row["meta"] or "{}")
+            except (TypeError, json.JSONDecodeError):
+                meta_obj = {}
+            if not isinstance(meta_obj, dict):
+                meta_obj = {}
             out.append(
                 GiveawayRecord(
                     id=row["id"],
@@ -780,6 +803,7 @@ class GiveawayDB:
                     ends_at=float(row["ends_at"]),
                     participants=[int(x) for x in parts],
                     ended=bool(row["ended"]),
+                    meta=meta_obj,
                 )
             )
         return out

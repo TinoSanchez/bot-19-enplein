@@ -7,6 +7,14 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
 
+
+class _Fmt(dict):
+    """Permet .format_map sans erreur si le template n'utilise pas toutes les clés."""
+
+    def __missing__(self, key: str) -> str:
+        return ""
+
+
 # Clé → métadonnées affichées dans le sélecteur slash + rendu embed
 TEMPLATES: Dict[str, Dict[str, Any]] = {
     "stream": {
@@ -205,6 +213,33 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
             "Merci à tous d'avoir suivi le stream. On se retrouve le mois prochain pour un nouveau Bonus Hunt ! 🍒🔔💎🎰"
         ),
     },
+    "call": {
+        "choice_name": "call",
+        "default_amount": 0,
+        "default_winners": 1,
+        "default_duration_minutes": 0,
+        "title": "🎰 Session Call — Tirage",
+        "description": (
+            "🏆 **SESSION CALL** en cours ! 🏆\n\n"
+            "🎯 Multiplicateur : **{multiplicateur}**\n"
+            "💰 Montant gagné annoncé : **{amount}$**\n"
+            "👥 {winner_label} : **{winners}**\n"
+            "⏱️ Fin : {ends_rel}\n\n"
+            "Clique sur **Participer** pour valider le résultat."
+        ),
+        "color": 0x2ECC71,
+        "result_title": "🏆 RÉSULTATS DE LA SESSION CALL ! 🏆",
+        "result_description": (
+            "🏆 {winner_line} !!! 🏆\n"
+            "La session du mercredi vient de rendre son verdict ! 🟢✨\n\n"
+            "{call_mult_line}\n\n"
+            "{call_cash_intro_line}\n\n"
+            "💎 Montant gagné : **{montant}** !\n\n"
+            "{call_condition_line}\n\n"
+            "{call_gg_line}\n"
+            "Rendez-vous mercredi prochain pour une nouvelle session de calls ! 🎰🔔🚀💎"
+        ),
+    },
 }
 
 
@@ -243,18 +278,24 @@ def build_embed_fields(
     amount_eur: int,
     winner_count: int,
     ends_ts: int,
+    multiplicateur: str = "",
 ) -> Tuple[str, str, int]:
     """Retourne (title, description, color) pour discord.Embed."""
     t = TEMPLATES.get(template_key) or TEMPLATES["stream"]
     ends_rel, ends_abs = _ends_tags(ends_ts)
-    desc = str(t["description"]).format(
-        amount=amount_eur,
-        winners=winner_count,
-        winner_label=_winner_label(winner_count),
-        place_suffix="" if int(winner_count) <= 1 else "s",
-        per_winner=_format_per_winner(amount_eur, winner_count),
-        ends_rel=ends_rel,
-        ends_abs=ends_abs,
+    desc = str(t["description"]).format_map(
+        _Fmt(
+            {
+                "amount": amount_eur,
+                "winners": winner_count,
+                "winner_label": _winner_label(winner_count),
+                "place_suffix": "" if int(winner_count) <= 1 else "s",
+                "per_winner": _format_per_winner(amount_eur, winner_count),
+                "ends_rel": ends_rel,
+                "ends_abs": ends_abs,
+                "multiplicateur": multiplicateur or "—",
+            }
+        )
     )
     return str(t["title"]), desc, int(t["color"])
 
@@ -265,6 +306,7 @@ def build_result_fields(
     amount_eur: int,
     winner_mentions: List[str],
     bh_total: int = 0,
+    call_multiplicateur: str = "",
 ) -> Tuple[str, str, int]:
     t = TEMPLATES.get(template_key) or TEMPLATES["stream"]
     if not winner_mentions:
@@ -292,64 +334,95 @@ def build_result_fields(
     effective_bh_total = int(bh_total if bh_total > 0 else amount_eur)
     bh_commission = int(round(effective_bh_total * 0.20))
     single = len(winner_mentions) <= 1
-    desc = str(t.get("result_description", "Gagnant(s) : {winner_line}")).format(
-        amount=amount_eur,
-        winner_line=winner_line,
-        per_winner=_format_per_winner(amount_eur, len(winner_mentions)),
-        tournoi_cash_line=tournoi_cash_line,
-        bh_total=effective_bh_total,
-        bh_commission=bh_commission,
-        stream_congrats_line=(
-            "Félicitations au chanceux du jour sur le stream ! 🎰✨"
-            if single
-            else "Félicitations aux chanceux du jour sur le stream ! 🎰✨"
-        ),
-        stream_cash_line=(
-            f"💰 Gain : {amount_eur}$ cash crédités immédiatement !"
-            if single
-            else f"💰 Gain : {amount_eur}$ cash à partager entre les gagnants !"
-        ),
-        stream_status_line=(
-            "🔥 Statut : Que tu sois affilié ou non, la chance a tourné pour toi !"
-            if single
-            else "🔥 Statut : Que vous soyez affiliés ou non, la chance a tourné pour vous !"
-        ),
-        stream_gg_line=(
-            "🤑 GG à toi ! On se retrouve demain pour le prochain tirage au sort quotidien sur le chat ! 🍒🔔💎"
-            if single
-            else "🤑 GG à vous ! On se retrouve demain pour le prochain tirage au sort quotidien sur le chat ! 🍒🔔💎"
-        ),
-        lundi_cash_line=(
-            f"💰 Le Cash : Félicitations au vainqueur ! Tu repars avec {amount_eur}$."
-            if single
-            else f"💰 Le Cash : Félicitations aux vainqueurs ! Chaque personne gagne {_format_per_winner(amount_eur, len(winner_mentions))}$."
-        ),
-        lundi_condition_line=(
-            "✅ Condition validée : Bravo à notre affilié KYC 2 pour sa victoire !"
-            if single
-            else "✅ Condition validée : Bravo à nos affiliés KYC 2 pour leur victoire !"
-        ),
-        lundi_gg_line=(
-            "🤑 GG AU GAGNANT ! 💸🔥"
-            if single
-            else "🤑 GG AUX GAGNANTS ! 💸🔥"
-        ),
-        vendredi_cash_line=(
-            f"💰 Le Butin : Félicitations au vainqueur ! Tu repars avec {amount_eur}$."
-            if single
-            else f"💰 Le Butin : Félicitations aux vainqueurs ! Chaque personne gagne {_format_per_winner(amount_eur, len(winner_mentions))}$."
-        ),
-        vendredi_condition_line=(
-            "✅ La Condition : Bravo à notre affilié KYC 2 qui a été tiré au sort !"
-            if single
-            else "✅ La Condition : Bravo à nos affiliés KYC 2 qui ont été tirés au sort !"
-        ),
-        vendredi_gg_line=(
-            "🤑 GG AU GAGNANT ! QUEL BEAU DÉBUT DE WEEK-END ! 💸🔥"
-            if single
-            else "🤑 GG AUX GAGNANTS ! QUEL BEAU DÉBUT DE WEEK-END ! 💸🔥"
-        ),
-        monthly_lines="\n\n".join(monthly_lines),
+    mult_display = (call_multiplicateur or "").strip() or "—"
+    montant_display = f"{int(amount_eur)}$"
+    call_mult_line = (
+        f"🎯 Le Multiplier : Tu as décroché un énorme **{mult_display}** !"
+        if single
+        else f"🎯 Le Multiplier : Vous avez décroché un énorme **{mult_display}** !"
+    )
+    call_cash_intro_line = (
+        "💰 Le Cash : Félicitations, tu remportes ton gain associé :"
+        if single
+        else "💰 Le Cash : Félicitations, vous remportez votre gain associé :"
+    )
+    call_condition_line = (
+        "✅ Condition validée : Bravo à notre affilié KYC 2 pour cette performance !"
+        if single
+        else "✅ Condition validée : Bravo à nos affiliés KYC 2 pour cette performance !"
+    )
+    call_gg_line = (
+        "🤑 GG AU GAGNANT ! 💸🔥"
+        if single
+        else "🤑 GG AUX GAGNANTS ! 💸🔥"
+    )
+    desc = str(t.get("result_description", "Gagnant(s) : {winner_line}")).format_map(
+        _Fmt(
+            {
+                "amount": amount_eur,
+                "winner_line": winner_line,
+                "per_winner": _format_per_winner(amount_eur, len(winner_mentions)),
+                "tournoi_cash_line": tournoi_cash_line,
+                "bh_total": effective_bh_total,
+                "bh_commission": bh_commission,
+                "stream_congrats_line": (
+                    "Félicitations au chanceux du jour sur le stream ! 🎰✨"
+                    if single
+                    else "Félicitations aux chanceux du jour sur le stream ! 🎰✨"
+                ),
+                "stream_cash_line": (
+                    f"💰 Gain : {amount_eur}$ cash crédités immédiatement !"
+                    if single
+                    else f"💰 Gain : {amount_eur}$ cash à partager entre les gagnants !"
+                ),
+                "stream_status_line": (
+                    "🔥 Statut : Que tu sois affilié ou non, la chance a tourné pour toi !"
+                    if single
+                    else "🔥 Statut : Que vous soyez affiliés ou non, la chance a tourné pour vous !"
+                ),
+                "stream_gg_line": (
+                    "🤑 GG à toi ! On se retrouve demain pour le prochain tirage au sort quotidien sur le chat ! 🍒🔔💎"
+                    if single
+                    else "🤑 GG à vous ! On se retrouve demain pour le prochain tirage au sort quotidien sur le chat ! 🍒🔔💎"
+                ),
+                "lundi_cash_line": (
+                    f"💰 Le Cash : Félicitations au vainqueur ! Tu repars avec {amount_eur}$."
+                    if single
+                    else f"💰 Le Cash : Félicitations aux vainqueurs ! Chaque personne gagne {_format_per_winner(amount_eur, len(winner_mentions))}$."
+                ),
+                "lundi_condition_line": (
+                    "✅ Condition validée : Bravo à notre affilié KYC 2 pour sa victoire !"
+                    if single
+                    else "✅ Condition validée : Bravo à nos affiliés KYC 2 pour leur victoire !"
+                ),
+                "lundi_gg_line": (
+                    "🤑 GG AU GAGNANT ! 💸🔥"
+                    if single
+                    else "🤑 GG AUX GAGNANTS ! 💸🔥"
+                ),
+                "vendredi_cash_line": (
+                    f"💰 Le Butin : Félicitations au vainqueur ! Tu repars avec {amount_eur}$."
+                    if single
+                    else f"💰 Le Butin : Félicitations aux vainqueurs ! Chaque personne gagne {_format_per_winner(amount_eur, len(winner_mentions))}$."
+                ),
+                "vendredi_condition_line": (
+                    "✅ La Condition : Bravo à notre affilié KYC 2 qui a été tiré au sort !"
+                    if single
+                    else "✅ La Condition : Bravo à nos affiliés KYC 2 qui ont été tirés au sort !"
+                ),
+                "vendredi_gg_line": (
+                    "🤑 GG AU GAGNANT ! QUEL BEAU DÉBUT DE WEEK-END ! 💸🔥"
+                    if single
+                    else "🤑 GG AUX GAGNANTS ! QUEL BEAU DÉBUT DE WEEK-END ! 💸🔥"
+                ),
+                "monthly_lines": "\n\n".join(monthly_lines),
+                "montant": montant_display,
+                "call_mult_line": call_mult_line,
+                "call_cash_intro_line": call_cash_intro_line,
+                "call_condition_line": call_condition_line,
+                "call_gg_line": call_gg_line,
+            }
+        )
     )
     title = str(t.get("result_title", "Giveaway terminé"))
     return title, desc, int(t["color"])

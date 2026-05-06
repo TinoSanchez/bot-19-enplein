@@ -13,7 +13,7 @@ import time
 import uuid
 from io import BytesIO
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import discord
 from discord import app_commands
@@ -386,11 +386,14 @@ class GiveawayCog(commands.Cog):
         return random.sample(candidates, k=k)
 
     def _running_embed(self, rec) -> discord.Embed:
+        meta = getattr(rec, "meta", None) or {}
+        mult = str(meta.get("multiplicateur", "") or "")
         title, desc, color = build_embed_fields(
             rec.template_key,
             amount_eur=rec.amount_eur,
             winner_count=rec.winner_count,
             ends_ts=int(rec.ends_at),
+            multiplicateur=mult,
         )
         e = discord.Embed(title=title, description=desc, color=color)
         e.set_footer(text=footer_participants(len(rec.participants)))
@@ -463,10 +466,13 @@ class GiveawayCog(commands.Cog):
 
         if winners:
             winner_mentions = [f"<@{uid}>" for uid in winners]
+            meta = getattr(rec, "meta", None) or {}
+            call_mult = str(meta.get("multiplicateur", "") or "")
             title, body, color = build_result_fields(
                 rec.template_key,
                 amount_eur=rec.amount_eur,
                 winner_mentions=winner_mentions,
+                call_multiplicateur=call_mult,
             )
         else:
             title = "Giveaway terminé"
@@ -499,6 +505,8 @@ class GiveawayCog(commands.Cog):
         role: Optional[discord.Role] = None,
         montant_par_joueur: Optional[int] = None,
         benefice_total: Optional[int] = None,
+        multiplicateur: Optional[str] = None,
+        montant: Optional[int] = None,
     ) -> None:
         try:
             # ACK immédiat pour éviter "L'application ne répond plus".
@@ -514,6 +522,23 @@ class GiveawayCog(commands.Cog):
                 return
 
             amount_eur, winner_count, duration_minutes = template_defaults(template)
+            g_meta: Optional[Dict[str, Any]] = None
+            if template == "call":
+                m_str = (multiplicateur or "").strip()
+                if not m_str:
+                    await interaction.followup.send(
+                        "Pour le template **call**, indique `multiplicateur` (ex. 500x).",
+                        ephemeral=True,
+                    )
+                    return
+                if montant is None or int(montant) <= 0:
+                    await interaction.followup.send(
+                        "Pour le template **call**, indique `montant` (gain en $, entier > 0).",
+                        ephemeral=True,
+                    )
+                    return
+                amount_eur = int(montant)
+                g_meta = {"multiplicateur": m_str}
             if template == "premier" and montant_par_joueur is not None:
                 if montant_par_joueur <= 0:
                     await interaction.followup.send(
@@ -585,6 +610,7 @@ class GiveawayCog(commands.Cog):
                 amount_eur=amount_eur,
                 winner_count=winner_count,
                 ends_ts=int(ends_at),
+                multiplicateur=str((g_meta or {}).get("multiplicateur", "")),
             )
             embed = discord.Embed(title=title, description=desc, color=color)
             embed.set_footer(text=footer_participants(0))
@@ -617,6 +643,7 @@ class GiveawayCog(commands.Cog):
                 amount_eur=amount_eur,
                 winner_count=winner_count,
                 ends_at=ends_at,
+                meta=g_meta,
             )
             self.bot.add_view(view)
 
@@ -643,7 +670,7 @@ class GiveawayCog(commands.Cog):
 
     @app_commands.command(
         name="win",
-        description="Lancer un giveaway instant (stream/lundi/vendredi/mensuel)",
+        description="Lancer un giveaway instant (stream/lundi/vendredi/mensuel/call/…)",
     )
     @app_commands.guild_only()
     @app_commands.describe(
@@ -652,6 +679,8 @@ class GiveawayCog(commands.Cog):
         role="Optionnel : rôle pour tirage aléatoire (lundi/vendredi)",
         montant_par_joueur="Optionnel : montant par joueur (uniquement template premier)",
         benefice_total="Optionnel : bénéfice total (uniquement template bhwin)",
+        multiplicateur="Optionnel : multiplicateur affiché (obligatoire pour template call)",
+        montant="Optionnel : montant gagné en $ (obligatoire pour template call)",
     )
     @app_commands.choices(template=_TEMPLATE_CHOICES)
     async def win(
@@ -662,7 +691,16 @@ class GiveawayCog(commands.Cog):
         role: Optional[discord.Role] = None,
         montant_par_joueur: Optional[int] = None,
         benefice_total: Optional[int] = None,
+        multiplicateur: Optional[str] = None,
+        montant: Optional[int] = None,
     ) -> None:
         await self._launch_giveaway(
-            interaction, template, joueurs, role, montant_par_joueur, benefice_total
+            interaction,
+            template,
+            joueurs,
+            role,
+            montant_par_joueur,
+            benefice_total,
+            multiplicateur,
+            montant,
         )

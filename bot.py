@@ -108,7 +108,7 @@ _SESSION_CHANNEL_ID = 1501631864220156016
 _SESSION_ROLE_ID = 1501617952376754196
 _SESSION_NAME_ON = "🟢💎call💎🟢"
 _SESSION_NAME_OFF = "🔴💎call💎🔴"
-_SLOTS_SOURCE_JSON = Path(r"C:\Users\mathi\Desktop\site BH 1.02\jeux.json")
+_SLOTS_SOURCE_JSON = ROOT / "gamdom_slots.json"
 
 
 def _truncate_cell(s: str, max_len: int) -> str:

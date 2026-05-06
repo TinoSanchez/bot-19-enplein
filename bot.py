@@ -13,7 +13,7 @@ from urllib import error as urlerror
 from urllib import request as urlrequest
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import discord
 from discord import app_commands
@@ -103,6 +103,10 @@ _ALLOWED_ROLE_IDS = {
 }
 _DEFAULT_RUMBLE_ANNOUNCE_CHANNEL_ID = 1435738454733623549
 _RUMBLE_BANNER_PATH = ROOT / "bot en plein.png"
+_SESSION_CHANNEL_ID = 1501631864220156016
+_SESSION_ROLE_ID = 1501617952376754196
+_SESSION_NAME_ON = "🟢💎call💎🟢"
+_SESSION_NAME_OFF = "🔴💎call💎🔴"
 
 
 def _truncate_cell(s: str, max_len: int) -> str:
@@ -1148,6 +1152,146 @@ class RankCog(commands.Cog):
         )
 
 
+class SessionCog(commands.Cog):
+    session = app_commands.Group(
+        name="session", description="Gérer la session call (start / stop)"
+    )
+
+    def __init__(self, bot: commands.Bot) -> None:
+        self.bot = bot
+        self.active: bool = False
+        self.used_users: Set[int] = set()
+
+    @staticmethod
+    def _is_admin(member: Optional[discord.Member]) -> bool:
+        if member is None:
+            return False
+        perms = member.guild_permissions
+        return bool(perms.administrator or perms.manage_guild)
+
+    @staticmethod
+    def _session_channel(guild: discord.Guild) -> Optional[discord.TextChannel]:
+        ch = guild.get_channel(_SESSION_CHANNEL_ID)
+        return ch if isinstance(ch, discord.TextChannel) else None
+
+    async def _configure_channel_for_session(
+        self, channel: discord.TextChannel, enabled: bool
+    ) -> None:
+        guild = channel.guild
+        everyone = guild.default_role
+        role = guild.get_role(_SESSION_ROLE_ID)
+
+        overwrites = channel.overwrites
+        ow_everyone = overwrites.get(everyone, discord.PermissionOverwrite())
+        ow_everyone.send_messages = False
+        overwrites[everyone] = ow_everyone
+
+        if role is not None:
+            ow_role = overwrites.get(role, discord.PermissionOverwrite())
+            ow_role.send_messages = True if enabled else False
+            overwrites[role] = ow_role
+
+        new_name = _SESSION_NAME_ON if enabled else _SESSION_NAME_OFF
+        await channel.edit(name=new_name, overwrites=overwrites)
+
+    @session.command(name="start", description="Démarrer la session call")
+    @app_commands.guild_only()
+    async def session_start(self, interaction: discord.Interaction) -> None:
+        if not self._is_admin(interaction.user if isinstance(interaction.user, discord.Member) else None):
+            await interaction.response.send_message(
+                "Commande réservée aux admins.", ephemeral=True
+            )
+            return
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "Commande disponible uniquement en serveur.", ephemeral=True
+            )
+            return
+        channel = self._session_channel(interaction.guild)
+        if channel is None:
+            await interaction.response.send_message(
+                f"Salon introuvable: `{_SESSION_CHANNEL_ID}`", ephemeral=True
+            )
+            return
+        self.used_users.clear()
+        self.active = True
+        await self._configure_channel_for_session(channel, enabled=True)
+        await interaction.response.send_message(
+            f"Session démarrée dans {channel.mention}. Les membres du rôle <@&{_SESSION_ROLE_ID}> peuvent envoyer 1 message chacun.",
+            ephemeral=True,
+        )
+
+    @session.command(name="stop", description="Stopper la session call et nettoyer")
+    @app_commands.guild_only()
+    async def session_stop(self, interaction: discord.Interaction) -> None:
+        if not self._is_admin(interaction.user if isinstance(interaction.user, discord.Member) else None):
+            await interaction.response.send_message(
+                "Commande réservée aux admins.", ephemeral=True
+            )
+            return
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "Commande disponible uniquement en serveur.", ephemeral=True
+            )
+            return
+        channel = self._session_channel(interaction.guild)
+        if channel is None:
+            await interaction.response.send_message(
+                f"Salon introuvable: `{_SESSION_CHANNEL_ID}`", ephemeral=True
+            )
+            return
+
+        self.active = False
+        self.used_users.clear()
+
+        # Purge tous les messages visibles du salon.
+        try:
+            await channel.purge(limit=None)
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "Je n'ai pas la permission de supprimer les messages du salon.",
+                ephemeral=True,
+            )
+            return
+
+        await self._configure_channel_for_session(channel, enabled=False)
+        await interaction.response.send_message(
+            f"Session arrêtée, salon nettoyé et renommé en `{_SESSION_NAME_OFF}`.",
+            ephemeral=True,
+        )
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message) -> None:
+        if message.author.bot:
+            return
+        if not self.active:
+            return
+        if message.channel.id != _SESSION_CHANNEL_ID:
+            return
+        if not isinstance(message.author, discord.Member):
+            return
+
+        role_ids = {r.id for r in message.author.roles}
+        if _SESSION_ROLE_ID not in role_ids:
+            try:
+                await message.delete()
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+            return
+
+        if message.author.id in self.used_users:
+            try:
+                await message.delete()
+                await message.author.send(
+                    "Tu as déjà utilisé ton unique message pour cette session call."
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+            return
+
+        self.used_users.add(message.author.id)
+
+
 class Bot19(commands.Bot):
     def __init__(self) -> None:
         super().__init__(command_prefix="!", intents=intents, help_command=None)
@@ -1305,6 +1449,7 @@ class Bot19(commands.Bot):
         await self.add_cog(AffiCog(self))
         await self.add_cog(PointCog(self))
         await self.add_cog(RankCog(self))
+        await self.add_cog(SessionCog(self))
         await self.add_cog(GiveawayCog(self, DB_PATH))
         if self._rumble_task is None or self._rumble_task.done():
             self._rumble_task = asyncio.create_task(self._rumble_live_loop())

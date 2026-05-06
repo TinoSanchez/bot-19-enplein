@@ -498,6 +498,7 @@ class GiveawayCog(commands.Cog):
         joueurs: Optional[str] = None,
         role: Optional[discord.Role] = None,
         montant_par_joueur: Optional[int] = None,
+        benefice_total: Optional[int] = None,
     ) -> None:
         try:
             # ACK immédiat pour éviter "L'application ne répond plus".
@@ -521,6 +522,20 @@ class GiveawayCog(commands.Cog):
                     )
                     return
                 amount_eur = int(montant_par_joueur)
+            if template == "bhwin":
+                if benefice_total is None:
+                    await interaction.followup.send(
+                        "Pour `bhwin`, indique `benefice_total` (Montant1) et je calcule automatiquement 20% (Montant2).",
+                        ephemeral=True,
+                    )
+                    return
+                if benefice_total <= 0:
+                    await interaction.followup.send(
+                        "`benefice_total` doit être supérieur à 0.",
+                        ephemeral=True,
+                    )
+                    return
+                amount_eur = int(benefice_total)
             ends_at = time.time() + float(duration_minutes) * 60.0
             gid = uuid.uuid4().hex
 
@@ -636,6 +651,7 @@ class GiveawayCog(commands.Cog):
         joueurs="Optionnel : gagnants forcés (mentions, IDs ou pseudos séparés par virgule)",
         role="Optionnel : rôle pour tirage aléatoire (lundi/vendredi)",
         montant_par_joueur="Optionnel : montant par joueur (uniquement template premier)",
+        benefice_total="Optionnel : bénéfice total (uniquement template bhwin)",
     )
     @app_commands.choices(template=_TEMPLATE_CHOICES)
     async def win(
@@ -645,7 +661,8 @@ class GiveawayCog(commands.Cog):
         joueurs: Optional[str] = None,
         role: Optional[discord.Role] = None,
         montant_par_joueur: Optional[int] = None,
+        benefice_total: Optional[int] = None,
     ) -> None:
         await self._launch_giveaway(
-            interaction, template, joueurs, role, montant_par_joueur
+            interaction, template, joueurs, role, montant_par_joueur, benefice_total
         )

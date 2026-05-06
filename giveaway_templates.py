@@ -179,6 +179,32 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
             "Bonne chance pour le hunt, on croise les doigts pour un gros profit ! 🍒🔔💎🎰"
         ),
     },
+    "bhwin": {
+        "choice_name": "bhwin",
+        "default_amount": 0,
+        "default_winners": 1,
+        "default_duration_minutes": 0,
+        "title": "💎 Bonus Hunt Win",
+        "description": (
+            "💎 Tirage **BHWIN** prêt ! 💎\n\n"
+            "👥 {winner_label} : **{winners}**\n"
+            "💰 Bénéfice total attendu : **{amount}$**\n"
+            "⏱️ Fin : {ends_rel}\n\n"
+            "Clique sur **Participer** pour confirmer le résultat."
+        ),
+        "color": 0x7D3CFF,
+        "result_title": "💎 RÉSULTAT FINAL : BONUS HUNT RÉUSSI ! 💎",
+        "result_description": (
+            "💎 RÉSULTAT FINAL : BONUS HUNT RÉUSSI ! 💎\n"
+            "🏆 {winner_line} A FRAPPÉ FORT ! 🏆\n"
+            "Le Bonus hunt vient de s'achever en stream et le verdict est tombé : C'EST LE PROFIT ! 🎰🚀\n\n"
+            "💰 Le Cash : Mission accomplie ! Le hunt se termine avec un bénéfice total de {bh_total}$.\n\n"
+            "💸 Ta Part : Félicitations, tu remportes tes 20% de commission, soit un total de {bh_commission}$ crédité directement ! 🤑✨\n\n"
+            "✅ Condition validée : Un grand bravo à notre affilié pour avoir déniché les bonnes machines et assuré le spectacle !\n\n"
+            "🤑 GG POUR LA MAX WIN ! 💸🔥\n"
+            "Merci à tous d'avoir suivi le stream. On se retrouve le mois prochain pour un nouveau Bonus Hunt ! 🍒🔔💎🎰"
+        ),
+    },
 }
 
 
@@ -238,6 +264,7 @@ def build_result_fields(
     *,
     amount_eur: int,
     winner_mentions: List[str],
+    bh_total: int = 0,
 ) -> Tuple[str, str, int]:
     t = TEMPLATES.get(template_key) or TEMPLATES["stream"]
     if not winner_mentions:
@@ -262,12 +289,16 @@ def build_result_fields(
         if len(winner_mentions) <= 1
         else "💰 Le Cash : Félicitations à l'équipe victorieuse ! Vous repartez avec 60$ à vous partager."
     )
+    effective_bh_total = int(bh_total if bh_total > 0 else amount_eur)
+    bh_commission = int(round(effective_bh_total * 0.20))
     single = len(winner_mentions) <= 1
     desc = str(t.get("result_description", "Gagnant(s) : {winner_line}")).format(
         amount=amount_eur,
         winner_line=winner_line,
         per_winner=_format_per_winner(amount_eur, len(winner_mentions)),
         tournoi_cash_line=tournoi_cash_line,
+        bh_total=effective_bh_total,
+        bh_commission=bh_commission,
         stream_congrats_line=(
             "Félicitations au chanceux du jour sur le stream ! 🎰✨"
             if single

@@ -34,7 +34,7 @@ _TEMPLATE_CHOICES = [
 _BANNER_FILENAME = "giveaway_banner.png"
 _DEFAULT_MONTHLY_CHANNEL_ID = 1500459538275504188
 _EXTERNAL_BANNER_PATH = Path(
-    r"C:\Users\mathi\.cursor\projects\c-Users-mathi-Desktop-bot-19\assets\c__Users_mathi_AppData_Roaming_Cursor_User_workspaceStorage_f7a4a39b924895bde9b0e1a5b57b7e8b_images_image-91c3dde1-fd6f-4fad-88ae-d393e9592065.png"
+    r"C:\Users\mathi\.cursor\projects\c-Users-mathi-Desktop-bot-19\assets\c__Users_mathi_AppData_Roaming_Cursor_User_workspaceStorage_f7a4a39b924895bde9b0e1a5b57b7e8b_images_bot_en_plein_banniere-285dee5e-7da3-4147-9e6c-ab9df610aba8.png"
 )
 _LOCAL_BANNER_PATH = Path(__file__).resolve().parent / "assets" / "19enplein_logo.png"
 

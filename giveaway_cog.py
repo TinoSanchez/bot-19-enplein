@@ -34,7 +34,7 @@ _TEMPLATE_CHOICES = [
 _BANNER_FILENAME = "giveaway_banner.png"
 _DEFAULT_MONTHLY_CHANNEL_ID = 1500459538275504188
 _EXTERNAL_BANNER_PATH = Path(
-    r"C:\Users\mathi\.cursor\projects\c-Users-mathi-Desktop-bot-19\assets\c__Users_mathi_AppData_Roaming_Cursor_User_workspaceStorage_f7a4a39b924895bde9b0e1a5b57b7e8b_images_bot_en_plein_banniere-285dee5e-7da3-4147-9e6c-ab9df610aba8.png"
+    r"C:\Users\mathi\.cursor\projects\c-Users-mathi-Desktop-bot-19\assets\c__Users_mathi_AppData_Roaming_Cursor_User_workspaceStorage_f7a4a39b924895bde9b0e1a5b57b7e8b_images_image-c94df31f-bf1a-4a35-8d3a-29a5d43fa48a.png"
 )
 _LOCAL_BANNER_PATH = Path(__file__).resolve().parent / "assets" / "19enplein_logo.png"
 
@@ -92,6 +92,24 @@ class GiveawayCog(commands.Cog):
     @staticmethod
     def _attach_banner(embed: discord.Embed) -> None:
         embed.set_image(url=f"attachment://{_BANNER_FILENAME}")
+
+    async def _edit_message_with_banner(
+        self,
+        msg: discord.Message,
+        *,
+        embed: discord.Embed,
+        view: Optional[discord.ui.View],
+    ) -> None:
+        banner_path = self._banner_path()
+        if banner_path:
+            self._attach_banner(embed)
+            await msg.edit(
+                embed=embed,
+                view=view,
+                attachments=[discord.File(banner_path, filename=_BANNER_FILENAME)],
+            )
+            return
+        await msg.edit(embed=embed, view=view)
 
     async def cog_load(self) -> None:
         if self._monthly_task is None or self._monthly_task.done():
@@ -351,7 +369,9 @@ class GiveawayCog(commands.Cog):
                 if isinstance(ch, discord.TextChannel):
                     msg = await ch.fetch_message(rec.message_id)
                     embed = self._running_embed(rec)
-                    await msg.edit(embed=embed, view=build_giveaway_view(gid))
+                    await self._edit_message_with_banner(
+                        msg, embed=embed, view=build_giveaway_view(gid)
+                    )
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                 pass
 
@@ -409,7 +429,7 @@ class GiveawayCog(commands.Cog):
             ch = self.bot.get_channel(rec.channel_id)
             if isinstance(ch, discord.TextChannel):
                 msg = await ch.fetch_message(rec.message_id)
-                await msg.edit(embed=embed, view=None)
+                await self._edit_message_with_banner(msg, embed=embed, view=None)
         except (discord.NotFound, discord.Forbidden, discord.HTTPException):
             pass
 

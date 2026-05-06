@@ -101,6 +101,7 @@ _ALLOWED_ROLE_IDS = {
     1435761344979664956,
     1435763980139368539,
 }
+_DEFAULT_RUMBLE_ANNOUNCE_CHANNEL_ID = 1435738454733623549
 
 
 def _truncate_cell(s: str, max_len: int) -> str:
@@ -1211,10 +1212,12 @@ class Bot19(commands.Bot):
 
     def _resolve_rumble_announce_channel(self) -> Optional[discord.TextChannel]:
         chan_raw = (os.getenv("RUMBLE_ANNOUNCE_CHANNEL_ID") or "").strip()
-        if chan_raw.isdigit():
-            ch = self.get_channel(int(chan_raw))
-            if isinstance(ch, discord.TextChannel):
-                return ch
+        channel_id = (
+            int(chan_raw) if chan_raw.isdigit() else _DEFAULT_RUMBLE_ANNOUNCE_CHANNEL_ID
+        )
+        ch = self.get_channel(channel_id)
+        if isinstance(ch, discord.TextChannel):
+            return ch
         for g in self.guilds:
             if g.system_channel and isinstance(g.system_channel, discord.TextChannel):
                 perms = g.system_channel.permissions_for(g.me) if g.me else None

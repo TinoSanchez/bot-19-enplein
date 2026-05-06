@@ -102,6 +102,7 @@ _ALLOWED_ROLE_IDS = {
     1435763980139368539,
 }
 _DEFAULT_RUMBLE_ANNOUNCE_CHANNEL_ID = 1435738454733623549
+_RUMBLE_BANNER_PATH = ROOT / "bot en plein.png"
 
 
 def _truncate_cell(s: str, max_len: int) -> str:
@@ -1229,6 +1230,37 @@ class Bot19(commands.Bot):
                     return ch
         return None
 
+    def _build_rumble_live_embed(self, live_url: str) -> discord.Embed:
+        e = discord.Embed(
+            title="🔴 19ENPLEIN EST EN LIVE SUR RUMBLE",
+            description=(
+                "Le live vient de commencer !\n"
+                f"👉 [Rejoindre le live maintenant]({live_url})"
+            ),
+            color=_CLR_GOLD,
+            timestamp=discord.utils.utcnow(),
+        )
+        e.add_field(name="Plateforme", value="Rumble", inline=True)
+        e.add_field(name="Lien", value=live_url, inline=False)
+        e.set_footer(text="19ENPLEIN CASINO · Notification live")
+        if _RUMBLE_BANNER_PATH.is_file():
+            e.set_image(url="attachment://rumble_live_banner.png")
+        return e
+
+    async def _send_rumble_announcement(
+        self, channel: discord.TextChannel, live_url: str, *, ping_everyone: bool
+    ) -> None:
+        embed = self._build_rumble_live_embed(live_url)
+        content = "@everyone 🚨 LIVE EN COURS !" if ping_everyone else "🚨 TEST LIVE (sans mention)"
+        kwargs: Dict[str, Any] = {
+            "content": content,
+            "embed": embed,
+            "allowed_mentions": discord.AllowedMentions(everyone=ping_everyone),
+        }
+        if _RUMBLE_BANNER_PATH.is_file():
+            kwargs["file"] = discord.File(_RUMBLE_BANNER_PATH, filename="rumble_live_banner.png")
+        await channel.send(**kwargs)
+
     async def _rumble_live_loop(self) -> None:
         await self.wait_until_ready()
         source_url = (
@@ -1249,9 +1281,8 @@ class Bot19(commands.Bot):
                     if (not was_live) or (live_url != last_url):
                         ch = self._resolve_rumble_announce_channel()
                         if ch is not None:
-                            await ch.send(
-                                f"@everyone 🔴 **19enplein est en live sur Rumble !**\n{live_url}",
-                                allowed_mentions=discord.AllowedMentions(everyone=True),
+                            await self._send_rumble_announcement(
+                                ch, live_url, ping_everyone=True
                             )
                             print(f"[rumble] annonce envoyée: {live_url}", flush=True)
                         point_db.set_meta("rumble_live_state", "1")
